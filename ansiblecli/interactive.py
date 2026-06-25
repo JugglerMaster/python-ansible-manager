@@ -19,10 +19,11 @@ def pick_main_action():
         questionary.Choice(title="   View run history", value="history"),
         questionary.Choice(title="   Quit", value="quit"),
     ]
-    return questionary.select(
+    result = questionary.select(
         "What would you like to do?",
         choices=choices,
     ).ask()
+    return result if result is not None else "quit"
 
 
 def pick_project():
@@ -47,7 +48,7 @@ def pick_project():
     choices.append(questionary.Choice(title="←  Back", value="__back__"))
 
     result = questionary.select("Select a playbook project:", choices=choices).ask()
-    if result == "__back__":
+    if result is None or result == "__back__":
         return None
     for p in projects:
         if p["name"] == result:
@@ -64,7 +65,7 @@ def pick_playbook(project):
         f"Multiple playbooks found in '{project['name']}'. Choose one:",
         choices=choices,
     ).ask()
-    return result
+    return result if result else project["playbooks"][0]
 
 
 def project_menu(project):
@@ -82,10 +83,11 @@ def project_menu(project):
     choices.append(questionary.Choice(title="   View playbook", value="view"))
     choices.append(questionary.Choice(title="←  Back to projects", value="back"))
 
-    return questionary.select(
+    result = questionary.select(
         f"Project: {project['name']}",
         choices=choices,
     ).ask()
+    return result if result else "back"
 
 
 def get_run_settings(project, last_config=None):
@@ -122,6 +124,8 @@ def get_run_settings(project, last_config=None):
     ).ask() or None
 
     save = questionary.confirm("Save these settings as default?").ask()
+    if save is None:
+        save = False
 
     return {
         "host": host or None,
@@ -216,7 +220,7 @@ def inventory_menu():
         ]
         action = questionary.select("Inventory Management:", choices=choices).ask()
 
-        if action == "back":
+        if action is None or action == "back":
             break
 
         if action == "list":
@@ -291,7 +295,10 @@ def interactive_loop():
     console.print()
 
     while True:
-        action = pick_main_action()
+        try:
+            action = pick_main_action()
+        except KeyboardInterrupt:
+            break
 
         if action == "quit":
             break
@@ -384,7 +391,7 @@ def interactive_loop():
                 show_run_result(result, playbook_path)
 
                 cont = questionary.confirm("Run again?", default=False).ask()
-                if not cont:
+                if cont is None or not cont:
                     break
 
         elif action == "inventory":
