@@ -1,0 +1,12 @@
+- name: Desktop Setup
+  description: Configure a new desktop PC with development tools and settings
+  hosts: all
+  become: yes
+  tasks:
+    - name: Install essential packages
+      ansible.builtin.package:
+        name:
+          - git
+          - curl
+          - vim
+        state: present
