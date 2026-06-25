@@ -46,7 +46,8 @@ ansiblecli/
 ## Conventions
 
 - Each subdirectory under `playbooks/` is a **project**
-- A project can have one or more `.yml`/`.yaml` files; if multiple, the user picks at run time via the wizard
+- Standalone `.yml`/`.yaml` files at `playbooks/` root are also treated as projects (name = filename without extension)
+- Projects can have playbooks in subdirectories — uses `rglob` so `tasks/main.yml`, `handlers/` etc. are found
 - Supporting files go in `playfiles/<project>/` (not managed by the tool)
 - The inventory file at `inventory/hosts.yml` is auto-generated — do not edit manually
 - Known hosts are managed via `ansiblecli inventory` commands or the interactive wizard
@@ -114,7 +115,7 @@ Auto-passed to ansible-playbook via `-i inventory/hosts.yml`.
 
 ## Common Patterns
 
-- To add a new playbook: create `playbooks/<project>/playbook.yml`
+- To add a new playbook: create `playbooks/<project>/playbook.yml` or just drop a `.yml` file in `playbooks/`
 - To add supporting files: create `playfiles/<project>/`
 - To add a host: `ansiblecli inventory add <hostname> --address <ip> --group <group>`
 - To initialize on a new machine: `ansiblecli init`

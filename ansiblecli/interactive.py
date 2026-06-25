@@ -47,7 +47,10 @@ def pick_project():
 
     choices.append(questionary.Choice(title="←  Back", value="__back__"))
 
-    result = questionary.select("Select a playbook project:", choices=choices).ask()
+    result = questionary.select(
+        "Select a playbook project:",
+        choices=choices,
+    ).ask()
     if result is None or result == "__back__":
         return None
     for p in projects:
@@ -283,18 +286,18 @@ def inventory_menu():
 
 
 def interactive_loop():
-    console.print(Panel("[bold]AnsibleCLI[/bold] - Interactive Playbook Manager", border_style="cyan"))
-    console.print()
-
     projects = discover_projects()
-    if projects:
-        console.print(f"[green]+[/green] Found [bold]{len(projects)}[/bold] playbook project{'s' if len(projects) != 1 else ''}")
-    else:
-        console.print("[yellow]No playbook projects found in playbooks/ directory.[/yellow]")
-        console.print("Create a subdirectory under [bold]playbooks/[/bold] with a .yml or .yaml file.")
-    console.print()
 
     while True:
+        console.clear()
+        console.print(Panel("[bold]AnsibleCLI[/bold] - Interactive Playbook Manager", border_style="cyan"))
+        if projects:
+            console.print(f"[green]+[/green] Found [bold]{len(projects)}[/bold] playbook project{'s' if len(projects) != 1 else ''}")
+        else:
+            console.print("[yellow]No playbook projects found in playbooks/ directory.[/yellow]")
+            console.print("Create a subdirectory under [bold]playbooks/[/bold] with a .yml or .yaml file.")
+        console.print()
+
         try:
             action = pick_main_action()
         except KeyboardInterrupt:
