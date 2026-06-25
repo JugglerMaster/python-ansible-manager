@@ -70,7 +70,7 @@ def pick_project():
         choices.append(questionary.Choice(title="←  Back", value="__back__"))
 
         header = f"Select a playbook project (Page {page + 1}/{pages}, {total} total):" if pages > 1 else "Select a playbook project:"
-        result = questionary.rawselect(header, choices=choices).ask()
+        result = questionary.select(header, choices=choices).ask()
 
         if result is None or result == "__back__":
             return None
