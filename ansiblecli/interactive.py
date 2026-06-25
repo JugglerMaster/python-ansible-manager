@@ -38,11 +38,9 @@ def pick_project():
         suffix = ""
         if last:
             host_info = f" (last: {last['host']})" if last.get("host") else ""
-            suffix = f"[dim]Last run: yes{host_info}[/dim]"
-        else:
-            suffix = "[dim]Never run[/dim]"
+            suffix = host_info or ""
         choices.append(questionary.Choice(
-            title=f"{p['name']}  {suffix}",
+            title=f"{p['name']}{'  ' + suffix if suffix else ''}",
             value=p["name"],
         ))
 
@@ -282,6 +280,14 @@ def inventory_menu():
 
 def interactive_loop():
     console.print(Panel("[bold]AnsibleCLI[/bold] - Interactive Playbook Manager", border_style="cyan"))
+    console.print()
+
+    projects = discover_projects()
+    if projects:
+        console.print(f"[green]+[/green] Found [bold]{len(projects)}[/bold] playbook project{'s' if len(projects) != 1 else ''}")
+    else:
+        console.print("[yellow]No playbook projects found in playbooks/ directory.[/yellow]")
+        console.print("Create a subdirectory under [bold]playbooks/[/bold] with a .yml or .yaml file.")
     console.print()
 
     while True:

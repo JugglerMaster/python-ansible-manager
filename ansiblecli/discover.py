@@ -14,7 +14,7 @@ def discover_projects():
     for child in sorted(playbooks_dir.iterdir()):
         if not child.is_dir():
             continue
-        playbooks = sorted(child.glob("*.yml")) + sorted(child.glob("*.yaml"))
+        playbooks = sorted(child.rglob("*.yml")) + sorted(child.rglob("*.yaml"))
         if not playbooks:
             continue
 
