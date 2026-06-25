@@ -6,7 +6,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ansiblecli import database
+from ansiblecli import __version__, database
 from ansiblecli.discover import discover_projects
 
 console = Console()
@@ -33,29 +33,56 @@ def pick_project():
         console.print("Create a subdirectory under [bold]playbooks/[/bold] with a .yml file.")
         return None
 
-    choices = []
-    for p in projects:
-        last = database.get_last_config(p["name"])
-        suffix = ""
-        if last:
-            host_info = f" (last: {last['host']})" if last.get("host") else ""
-            suffix = host_info or ""
-        choices.append(questionary.Choice(
-            title=f"{p['name']}{'  ' + suffix if suffix else ''}",
-            value=p["name"],
-        ))
+    page_size = 10
+    total = len(projects)
+    pages = (total + page_size - 1) // page_size
+    page = 0
 
-    choices.append(questionary.Choice(title="←  Back", value="__back__"))
+    while True:
+        start = page * page_size
+        end = min(start + page_size, total)
+        page_projects = projects[start:end]
 
-    result = questionary.select(
-        "Select a playbook project:",
-        choices=choices,
-    ).ask()
-    if result is None or result == "__back__":
-        return None
-    for p in projects:
-        if p["name"] == result:
-            return p
+        choices = []
+        for p in page_projects:
+            last = database.get_last_config(p["name"])
+            suffix = ""
+            if last:
+                host_info = f" (last: {last['host']})" if last.get("host") else ""
+                suffix = host_info or ""
+            choices.append(questionary.Choice(
+                title=f"{p['name']}{'  ' + suffix if suffix else ''}",
+                value=p["name"],
+            ))
+
+        if pages > 1:
+            if page < pages - 1:
+                choices.append(questionary.Choice(
+                    title=f"→  Next page ({end + 1}-{min(end + page_size, total)})",
+                    value="__next__",
+                ))
+            if page > 0:
+                choices.append(questionary.Choice(
+                    title=f"←  Previous page ({start - page_size + 1}-{start})",
+                    value="__prev__",
+                ))
+
+        choices.append(questionary.Choice(title="←  Back", value="__back__"))
+
+        header = f"Select a playbook project (Page {page + 1}/{pages}, {total} total):" if pages > 1 else "Select a playbook project:"
+        result = questionary.select(header, choices=choices).ask()
+
+        if result is None or result == "__back__":
+            return None
+        if result == "__next__":
+            page += 1
+            continue
+        if result == "__prev__":
+            page -= 1
+            continue
+        for p in projects:
+            if p["name"] == result:
+                return p
     return None
 
 
@@ -290,7 +317,7 @@ def interactive_loop():
 
     while True:
         console.clear()
-        console.print(Panel("[bold]AnsibleCLI[/bold] - Interactive Playbook Manager", border_style="cyan"))
+        console.print(Panel(f"[bold]AnsibleCLI v{__version__}[/bold] — Interactive Playbook Manager", border_style="cyan"))
         if projects:
             console.print(f"[green]+[/green] Found [bold]{len(projects)}[/bold] playbook project{'s' if len(projects) != 1 else ''}")
         else:

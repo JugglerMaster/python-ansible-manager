@@ -5,7 +5,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from ansiblecli import database
+from ansiblecli import __version__, database
 from ansiblecli.config import get as get_config
 from ansiblecli.config import APP_DIR, load_config, set_key
 from ansiblecli.discover import discover_projects, get_project
@@ -20,7 +20,7 @@ from ansiblecli.inventory import (
 
 app = typer.Typer(
     name="ansiblecli",
-    help="Interactive CLI for managing and running Ansible playbooks",
+    help=f"AnsibleCLI v{__version__} — Interactive Playbook Manager",
     no_args_is_help=False,
 )
 console = Console()
