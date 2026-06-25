@@ -1,0 +1,9 @@
+---
+- hosts: lenovoserver
+  become: yes
+  strategy: free
+  tasks:
+      - name: Installs VNC Server
+        apt:
+          pkg:
+            - tightvncserver

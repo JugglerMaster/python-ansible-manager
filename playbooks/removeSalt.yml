@@ -1,0 +1,14 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+  - name: remove all salt items
+    apt:
+      pkg:
+        - salt-master
+        - salt-api
+        - salt-cloud
+        - salt-minion
+        - salt-ssh
+        - salt-syndic
+      state: absent

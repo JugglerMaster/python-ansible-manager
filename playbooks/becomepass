@@ -1,0 +1,3 @@
+put this in the hosts file in /etc/ansible/hosts after the host name
+ansible_sudo_pass=
+

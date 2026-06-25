@@ -1,0 +1,18 @@
+---
+- hosts: lenovoserver
+  become: yes
+  strategy: free
+  tasks:
+   - name: Installs ssmtp
+     apt:
+       update_cache: yes
+       pkg:
+         - ssmtp
+   - name: Setup ssmtp.conf
+     copy:
+      src: playfiles/ssmtp/ssmtp.conf
+      dest: /etc/ssmtp/ssmtp.conf
+   - name: Setup aliase emailing
+     copy:
+      src: playfiles/ssmtp/revaliases
+      dest: /etc/ssmtp/revaliases

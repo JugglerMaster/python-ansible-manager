@@ -1,0 +1,32 @@
+---
+- hosts: all
+  become: yes
+  strategy: free
+  tasks:
+   - name: Install dependencies
+     apt: 
+       pkg:
+       - coreutils
+       - wget
+       - apt-transport-https
+       - lsb-release
+       - ca-certificates
+       - software-properties-common
+       - gnupg-agent
+   - name: Install apt key
+     apt_key:
+       url: https://download.docker.com/linux/debian/gpg
+       state: present
+   - name: add deb location for bullseye
+     apt_repository:
+       repo: deb [arch=amd64] https://download.docker.com/linux/debian bullseye stable
+       state: present
+   - name: Install docker and docker compose
+     apt: 
+       pkg:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+        - docker-compose
+       update_cache: yes
+       

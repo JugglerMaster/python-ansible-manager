@@ -1,0 +1,30 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+   - name: Copy openssh config
+     copy:
+      src: playfiles/openssh-config/sshd_config
+      dest: /etc/ssh/sshd_config
+   - name: Set up ssh keys
+     authorized_key:
+      user: dadisc01
+      state: present
+      key: '{{ item }}'
+     with_file:
+      - "playfiles/openssh-config/keys/iphone.pub"
+      - "playfiles/openssh-config/keys/workKey.pub"
+      - "playfiles/openssh-config/keys/win10.pub"
+      - "playfiles/openssh-config/keys/desktop.pub"
+      - "playfiles/openssh-config/keys/desktop2.pub"
+      - "playfiles/openssh-config/keys/lenovoserver.pub"
+      - "playfiles/openssh-config/keys/lenovoserverroot.pub"
+      - "playfiles/openssh-config/keys/omv.pub"
+      - "playfiles/openssh-config/keys/BTCOMV.pub"
+      - "playfiles/openssh-config/keys/mediamachine.pub"
+
+   - name: Collect keys for new machines
+     fetch:
+       src: /home/dadisc01/.ssh/id_rsa.pub
+       dest: /home/dadisc01/ansible/playfiles/openssh-config/newKeys/{{ inventory_hostname }}.pub
+       flat: yes

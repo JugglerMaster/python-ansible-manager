@@ -1,0 +1,86 @@
+---
+- hosts: toshibaserver
+  name: Install Prometheus Server
+  become: true
+  vars:
+    install: "https://github.com/prometheus/prometheus/releases/download/v2.20.1/prometheus-2.20.1.linux-amd64.tar.gz"
+    installfolder: "/tmp/prometheus-2.20.1.linux-amd64"
+    server_binary_dest: '/usr/bin/prometheus'
+    server_service: 'prometheus.service'
+    prometheus_user: 'prometheus'
+  tasks:
+   - name: Add user prometheus
+     user:
+      name: prometheus
+      shell: /bin/false
+      system: true
+      create_home: no
+   - name: Ensure that /etc/prometheus exists
+     file:
+       state: directory
+       path: /etc/prometheus
+       owner: "{{ prometheus_user }}"
+       group: "{{ prometheus_user }}"
+       mode: 0755
+   - name: create /var/lib/prometheus/data
+     file:
+      state: directory
+      path: /var/lib/prometheus/data
+      recurse: true
+      owner: "{{ prometheus_user }}"
+      group: "{{ prometheus_user }}"
+      mode: 0755
+   - name: place prometheus config
+     template:
+       src: playfiles/Prometheus/prometheus.yml
+       dest: /etc/prometheus/prometheus.yml
+   - name: Download and extract Prometheus
+     unarchive:
+       src: " {{ install }} "
+       dest: /tmp
+       remote_src: yes
+   - name: Copy Over Server Binary
+     copy:
+       src: "{{ installfolder }}/prometheus"
+       dest: "{{ server_binary_dest }}"
+       owner: "{{ prometheus_user }}"
+       group: "{{ prometheus_user }}"
+       mode: 0755
+       remote_src: yes
+   - name: Ansible delete prometheus tmp folder
+     file:
+       path: "{{ installfolder }}"
+       state: absent
+   - name: Create service prometheus.service
+     blockinfile:
+       path: /etc/systemd/system/prometheus.service
+       block: |
+         [Service]
+         User={{ prometheus_user }}
+         Group={{ prometheus_user }}
+         ExecStart=/usr/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus/data --storage.tsdb.retention=8928h
+         ExecReload=/bin/kill -HUP $MAINPID
+
+         [Install]
+         WantedBy=multi-user.target
+       create: true
+   - name: systemctl daemon_reload
+     systemd:
+       daemon_reload: yes
+   - name: Stop Prometheus
+     service:
+       name: prometheus
+       state: stopped
+   - name: Start and Enable Prometheus
+     service:
+       name: prometheus
+       state: started
+       enabled: yes
+   - name: Check whether port 9090 is available
+     wait_for:
+       host: toshibaserver
+       port: 9090
+       state: started
+       timeout: 30
+     notify: restart_prometheus_server
+

@@ -1,0 +1,24 @@
+---
+- hosts: [jellyfin]
+  become: yes
+  strategy: free
+  tasks:
+   - name: Install dependencies
+     apt: 
+       pkg:
+       - apt-transport-https
+       - lsb-release
+   - name: Install apt key
+     apt_key:
+       url: https://repo.jellyfin.org/debian/jellyfin_team.gpg.key
+       state: present
+   - name: add deb location for buster
+     apt_repository:
+       repo: deb https://repo.jellyfin.org/debian buster main
+       state: present
+   - name: Install jellyfin
+     apt: 
+       name: jellyfin
+       update_cache: yes
+   - debug:
+       msg: Goto http://host:8096

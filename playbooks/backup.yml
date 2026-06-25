@@ -1,0 +1,16 @@
+---
+- hosts: toshibaserver
+  become: yes
+  strategy: free
+  tasks:
+   - name: Install rsnapshot
+     apt: name=rsnapshot
+   - name: Copy rsnapshot config
+     copy:
+      src: playfiles/backup/rsnapshot.conf
+      dest: /etc/rsnapshot.conf
+   - name: Copy cron schedule
+     copy:
+      src: playfiles/backup/rsnapshot
+      dest: /etc/cron.d/rsnapshot
+

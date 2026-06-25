@@ -1,0 +1,11 @@
+---
+- hosts: [shairport]
+  become: yes
+  strategy: free
+  tasks:
+   - name: Install shairport-sync
+     apt: name=shairport-sync
+   - name: Copy config
+     copy:
+      src: playfiles/shairport-config/shairport-sync.conf
+      dest: /etc/shairport-sync.conf

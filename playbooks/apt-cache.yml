@@ -1,0 +1,9 @@
+---
+- hosts: all
+  become: yes
+  strategy: free
+  tasks: 
+   - name: Remove file (delete file)
+     ansible.builtin.file:
+      path: "/etc/apt/apt.conf.d/01proxy" 
+      state: absent

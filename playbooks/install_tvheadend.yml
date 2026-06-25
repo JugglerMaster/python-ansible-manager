@@ -1,0 +1,27 @@
+---
+- hosts: [tvheadend]
+  become: yes
+  strategy: free
+  tasks:
+   - name: Install dependencies
+     apt: 
+       pkg:
+       - coreutils
+       - wget
+       - apt-transport-https
+       - lsb-release
+       - ca-certificates
+   - name: Install apt key
+     apt_key:
+       url: https://doozer.io/keys/tvheadend/tvheadend/pgp
+       state: present
+   - name: add deb location for buster
+     apt_repository:
+       repo: deb https://apt.tvheadend.org/unstable buster main
+       state: present
+   - name: Install tvheadend
+     apt: 
+       name: tvheadend
+       update_cache: yes
+   - debug:
+       msg: sudo dpkg-reconfigure tvheadend to configure admin password

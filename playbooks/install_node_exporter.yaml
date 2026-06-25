@@ -1,0 +1,117 @@
+---
+- hosts: all
+  name: Install node_exporter
+  strategy: free
+  become: true
+  vars:
+    armv71: https://github.com/prometheus/node_exporter/releases/download/v1.0.1/node_exporter-1.0.1.linux-armv7.tar.gz
+    armv71folder: /tmp/node_exporter-1.0.1.linux-armv7
+    armv6l: https://github.com/prometheus/node_exporter/releases/download/v1.0.1/node_exporter-1.0.1.linux-armv6.tar.gz
+    armv6lfolder: /tmp/node_exporter-1.0.1.linux-armv6
+    x86_64: https://github.com/prometheus/node_exporter/releases/download/v1.0.1/node_exporter-1.0.1.linux-amd64.tar.gz
+    x86_64folder: /tmp/node_exporter-1.0.1.linux-amd64
+  tasks:
+   - name: Add user node_exporter
+     user:
+       name: node_exporter
+       shell: /bin/false
+       system: true
+       create_home: no
+   - name: Download and extract x64
+     unarchive:
+       src: " {{ x86_64 }} "
+       dest: /tmp
+       remote_src: yes
+     when:
+       ansible_architecture == "x86_64"
+   - name: Copy bin node_exporter to /usr/local/bin x64
+     copy:
+       src:  "{{ x86_64folder }}/node_exporter"
+       dest: /usr/local/bin/
+       owner: node_exporter
+       group: node_exporter
+       mode: u+x,g+x,o+x
+       remote_src: yes
+     when:
+       ansible_architecture == "x86_64"
+   - name: Download and extract ARM6
+     unarchive:
+       src: " {{ armv6l }} "
+       dest: /tmp
+       remote_src: yes
+     when:
+       ansible_architecture == "armv6l"
+   - name: Copy bin node_exporter to /usr/local/bin ARM6
+     copy:
+       src:  "{{ armv6lfolder }}/node_exporter"
+       dest: /usr/local/bin/
+       owner: node_exporter
+       group: node_exporter
+       mode: u+x,g+x,o+x
+       remote_src: yes
+     when:
+       ansible_architecture == "armv6l"
+
+   - name: Download and extract ARM7
+     unarchive:
+       src: " {{ armv71 }} "
+       dest: /tmp
+       remote_src: yes
+     when:
+       ansible_architecture == "armv7l"
+   - name: Copy bin node_exporter to /usr/local/bin ARM7
+     copy:
+       src:  "{{ armv71folder }}/node_exporter"
+       dest: /usr/local/bin/
+       owner: node_exporter
+       group: node_exporter
+       mode: u+x,g+x,o+x
+       remote_src: yes
+     when:
+       ansible_architecture == "armv7l"
+   - name: Ansible delete ARM7 files
+     file:
+       path: "{{ armv71folder }}"
+       state: absent
+   - name: Ansible delete ARM6 files
+     file:
+       path: "{{ armv6lfolder }}"
+       state: absent
+   - name: Ansible delete x64 files
+     file:
+       path: "{{ x86_64folder }}"
+       state: absent
+   - name: Create service node_exporter.service
+     blockinfile:
+       path: /etc/systemd/system/node_exporter.service
+       block: |
+         [Unit]
+         Description=Prometheus Node Exporter
+         Wants=network-online.target
+         After=network-online.target
+
+         [Service]
+         User=node_exporter
+         Group=node_exporter
+         Type=simple
+         ExecStart=/usr/local/bin/node_exporter
+
+         [Install]
+         WantedBy=multi-user.target
+       create: true
+
+   - name: systemctl daemon_reload
+     systemd:
+       daemon_reload: yes
+
+   - name: Start and Enable node_exporter
+     service:
+       name: node_exporter
+       state: started
+       enabled: yes
+
+   - name: Check whether port 9100 is available
+     wait_for:
+       port: 9100
+       state: started
+       timeout: 5

@@ -1,0 +1,13 @@
+---
+- hosts: all
+  become: yes
+  strategy: free
+  tasks:
+   - name: Setup Sudoers
+     copy:
+      src: playfiles/sudo/sudoers
+      dest: /etc/sudoers
+   - name: Remove file (delete file)
+     ansible.builtin.file:
+      path: /etc/sudoers.d/10-installer
+      state: absent

@@ -1,0 +1,9 @@
+---
+- hosts: mediamachine
+  become: yes
+  strategy: free
+  tasks:
+      - name: Run a command that uses non-posix shell-isms (in this example /bin/sh doesn't handle redirection and wildcards together but bash does)
+        ansible.builtin.shell: printf "[Desktop Entry]\nType=Application\nName=Chromium Kiosk\nExec=sh -c \'chromium --start-maximized --kiosk \"http://192.168.1.236/mediamachine/index.php\"\'" > /etc/xdg/autostart/chrome.desktop
+        args:
+          executable: /bin/bash
