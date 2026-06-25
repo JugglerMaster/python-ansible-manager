@@ -1,40 +1,17 @@
 # AnsibleCLI — AI Agent Notes
 
-## Project Overview
-
-Interactive CLI tool for managing and running Ansible playbooks. Discovers playbooks from the filesystem, manages a central inventory, provides a guided interactive wizard, and tracks run history.
-
 ## Architecture Decisions
 
-### 1. Python
-**Why:** Ansible is written in Python, making integration natural. Rich ecosystem for CLI tools (Typer, Rich, questionary). Zero compilation step, easy to install.
-
-### 2. Typer over Click
-**Why:** Type-hint-based CLI framework reduces boilerplate. Auto-generates help text and validation. Built on Click so it's battle-tested and extensible.
-
-### 3. questionary for interactivity
-**Why:** The core UX is a guided wizard. questionary provides select, confirm, text, and checkbox prompts out of the box. Lightweight with no heavy dependencies.
-
-### 4. Rich for display
-**Why:** Tables, panels, markup, and colors make the interactive wizard feel polished. Used for run history display, inventory listing, and playbook viewing.
-
-### 5. SQLite for tracking (stdlib)
-**Why:** Zero external dependencies. Stores run history, last-used config per project, and known hosts. Database file lives at `~/.ansiblecli/ansiblecli.db`.
-
-### 6. Filesystem-based playbook discovery
-**Why:** Drop a folder in `playbooks/` and it's auto-detected. No registration step, no database sync. Each subdirectory = one project. Convention over configuration.
-
-### 7. playbooks/ vs playfiles/ separation
-**Why:** Clear distinction between runnable Ansible YAML (playbooks/) and supporting files like templates, scripts, configs (playfiles/). Only playbooks/ is scanned and tracked. playfiles/ is documented in README as a convention.
-
-### 8. Central inventory/hosts.yml
-**Why:** Single source of truth for targets. CLI generates a YAML inventory file and passes `-i` automatically on every `ansible-playbook` invocation. Users never point at an inventory file manually.
-
-### 9. Interactive-first UX
-**Why:** Running `ansiblecli` with no arguments launches a guided wizard. CLI flags exist for automation/scripting but the default path is hand-holding: select project, choose settings, run.
-
-### 10. Last-config memory
-**Why:** Per-project recall of last host, check mode, tags, and extra vars. Repeated runs are one-click: "Run with last config."
+1. **Python** — Ansible is Python, integration natural. Rich CLI ecosystem.
+2. **Typer over Click** — Type-hint CLI, less boilerplate, auto-help.
+3. **questionary** — select/confirm/text prompts for guided wizard UX.
+4. **Rich** — Tables, panels, colors for polished terminal output.
+5. **SQLite (stdlib)** — Zero deps, tracks history + last-config + hosts.
+6. **Filesystem discovery** — Drop a folder in `playbooks/`, auto-detected.
+7. **playbooks/ vs playfiles/** — Runnable YAML vs supporting files. Only playbooks/ is scanned.
+8. **Central inventory/hosts.yml** — CLI generates YAML inventory, auto-injects `-i` on every run.
+9. **Interactive-first UX** — `ansiblecli` with no args = guided wizard.
+10. **Last-config memory** — Per-project recall of last host, check mode, tags, extra vars.
 
 ## Project Structure
 
@@ -141,3 +118,13 @@ Auto-passed to ansible-playbook via `-i inventory/hosts.yml`.
 - To add a host: `ansiblecli inventory add <hostname> --address <ip> --group <group>`
 - To initialize on a new machine: `ansiblecli init`
 - For CI/automation: `ansiblecli run <project> --host <host> --check`
+
+## Important Note: Ansible Dependency
+
+`ansiblecli` calls `ansible-playbook` via subprocess. The `ansible-playbook` binary must be on the system PATH at runtime. This is independent of whether ansiblecli itself is installed in a virtual environment. Options:
+
+- Install Ansible system-wide: `apt install ansible` (Linux), `brew install ansible` (macOS), or `pip install ansible` (anywhere on PATH)
+- Install Ansible inside the same venv: `pip install ansible` after activating the venv
+- If deploying via CI/CD, ensure `ansible-playbook` is available in the runner environment
+
+Without `ansible-playbook` on PATH, `ansiblecli run` will fail with a clear error message.
