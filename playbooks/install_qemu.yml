@@ -1,0 +1,21 @@
+---
+- hosts: lenovoserver
+  become: yes
+  strategy: free
+  tasks:
+      - name: Installs Snap
+        apt:
+          pkg:
+            - qemu-kvm 
+            - libvirt-clients
+            - libvirt-daemon-system
+            - bridge-utils
+            - virtinst
+            - libvirt-daemon
+            - virt-manager
+      - name: adding existing user '{{ user }}' to group sudo
+        user:
+          name: dadisc01
+          groups: libvirt
+          append: yes
+        become: yes

@@ -1,0 +1,12 @@
+---
+- hosts: [nextcloud]
+  become: yes
+  strategy: free
+  roles:
+    - role: nextcloud
+      nextcloud_mysql_root_pwd: "godisreal"
+      nextcloud_websrv: "nginx"
+      nextcloud_admin_pwd: "secret007"
+      nextcloud_webroot: "/var/www/nextcloud/"
+      nextcloud_data_dir: "/ncdata"
+      nextcloud_db_pwd: "secretagency"

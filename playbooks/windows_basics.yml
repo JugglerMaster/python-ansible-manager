@@ -1,0 +1,25 @@
+- hosts: [desktopwin10,win10dell]
+  tasks:
+  - name: Ensure basic programs installed via Chocolatey
+    win_chocolatey:
+      name: 
+      - 7zip
+      - vlc
+      - adobereader
+      - vcredist140
+      - putty
+      - winscp
+      - vscode
+      - keepass
+      - audacity
+      - windirstat
+      - greenshot
+      - telegram
+      - discord
+      - etcher
+      - steam-client
+      - voobly
+      - waterfox
+      - libreoffice
+      - openscad
+      state: present

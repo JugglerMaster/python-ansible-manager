@@ -1,0 +1,10 @@
+---
+- hosts: all
+  become: yes
+  strategy: free
+  tasks:
+      - name: Installs Snap
+        apt: 
+          pkg:
+            - snap
+            - snapd

@@ -1,0 +1,39 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: Copy OpenSSH config
+      copy:
+        src: playfiles/openssh-config/sshd_config
+        dest: /etc/ssh/sshd_config
+
+    - name: Find all .pub files in keys folder on control host
+      delegate_to: localhost
+      run_once: true
+      find:
+        paths: "{{ playbook_dir }}/playfiles/openssh-config/keys"
+        patterns: '*.pub'
+        file_type: file
+      register: pub_key_files
+
+    - name: Set up SSH keys from control host
+      authorized_key:
+        user: dadisc01
+        state: present
+        key: "{{ lookup('file', item.path) }}"
+      loop: "{{ pub_key_files.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+
+    - name: Collect keys for new machines
+      fetch:
+        src: /home/dadisc01/.ssh/id_rsa.pub
+        dest: /home/dadisc01/ansible/playfiles/openssh-config/newKeys/{{ inventory_hostname }}.pub
+        flat: yes
+
+    - name: Add user to docker group
+      user:
+        name: dadisc01
+        groups: docker
+        append: yes

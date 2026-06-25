@@ -1,0 +1,20 @@
+---
+- hosts: all
+  become: yes
+  strategy: free
+  tasks:
+      - name: Update - Upgrade - Clean - Remove APT
+        apt:
+          update_cache: yes
+          upgrade: yes
+          autoclean: yes
+          autoremove: yes
+      - name: Installs NCDU and screen and git
+        apt: 
+          pkg:
+            - ncdu
+            - screen
+            - git
+            - build-essential
+            - nfs-common
+            - cifs-utils

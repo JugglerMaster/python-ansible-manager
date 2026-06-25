@@ -1,0 +1,19 @@
+---
+
+- hosts: all
+  become: yes
+  strategy: free
+  tasks:
+  - name: Update apt cache
+    apt:
+      update_cache: yes
+  - name: Upgrade packages
+    apt:
+      upgrade: yes
+  - name: Remove useless packages from the cache
+    apt:
+      autoclean: yes
+  - name: Remove dependences not needed
+    apt:
+      autoremove: yes
+

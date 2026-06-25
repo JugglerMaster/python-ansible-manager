@@ -1,0 +1,13 @@
+- hosts: all
+  become: yes
+  tasks:
+  - name: install unattended-upgrades
+    apt: name=unattended-upgrades state=present
+  - name: copy over config
+    copy:
+      src: playfiles/unattended/50unattended-upgrades
+      dest: /etc/apt/apt.conf.d/50unattended-upgrades
+      owner: root
+      group: root
+      mode: '0644'
+
