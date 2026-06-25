@@ -1,0 +1,9 @@
+- name: Server Provision
+  description: Provision and configure web servers
+  hosts: all
+  become: yes
+  tasks:
+    - name: Install nginx
+      ansible.builtin.package:
+        name: nginx
+        state: present

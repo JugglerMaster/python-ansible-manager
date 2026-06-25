@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: ansiblecli
+Version: 0.1.0
+Summary: Interactive CLI for managing and running Ansible playbooks
+Requires-Python: >=3.10
+License-File: LICENSE
+Requires-Dist: typer>=0.12.0
+Requires-Dist: rich>=13.0.0
+Requires-Dist: questionary>=2.0.0
+Requires-Dist: pyyaml>=6.0
+Dynamic: license-file
