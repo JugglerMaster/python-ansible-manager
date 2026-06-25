@@ -2,13 +2,21 @@
 
 Interactive CLI tool for managing and running Ansible playbooks.
 
-## Install
+## Quick Start
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate     # Windows
-# source .venv/bin/activate  # Linux/macOS
+# First run: creates .venv, installs, launches wizard
+./ansiblecli.sh
 
+# Subsequent runs: instant
+./ansiblecli.sh
+```
+
+## Manual Install
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .
 ```
 

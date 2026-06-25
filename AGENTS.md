@@ -36,6 +36,7 @@ ansiblecli/
 │       └── templates/
 ├── inventory/                      # Managed inventory (auto-generated)
 │   └── hosts.yml
+├── ansiblecli.sh                    # Unix launcher — auto-creates .venv, installs, runs
 ├── pyproject.toml
 ├── AGENTS.md
 ├── README.md
@@ -118,6 +119,17 @@ Auto-passed to ansible-playbook via `-i inventory/hosts.yml`.
 - To add a host: `ansiblecli inventory add <hostname> --address <ip> --group <group>`
 - To initialize on a new machine: `ansiblecli init`
 - For CI/automation: `ansiblecli run <project> --host <host> --check`
+
+## Launcher Script
+
+`ansiblecli.sh` at the repo root auto-bootstraps the virtual environment:
+
+1. Checks if `.venv/` exists; if not, creates it and runs `pip install -e .`
+2. Delegates to the venv's `ansiblecli` entry point with all arguments forwarded
+
+Usage: `./ansiblecli.sh` (first run creates venv, subsequent runs are instant)
+
+This avoids manual venv activation. On Windows, use WSL with this script or manually activate `.venv\Scripts\activate` then `ansiblecli`.
 
 ## Important Note: Ansible Dependency
 
