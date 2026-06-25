@@ -1,0 +1,70 @@
+---
+- name: Deploy Secure Remote Weekly Backup
+  hosts: all
+  become: yes
+  vars:
+    # --- REMOTE DESTINATION CONFIG ---
+    remote_backup_host: "192.168.1.50"
+    remote_backup_user: "backupuser"
+    remote_backup_dir: "/mnt/backups/nodes"
+
+    # --- LOCAL CONFIG (ON THE TARGET SERVER) ---
+    backup_log_path: "/var/log/weekly_backup.log"
+    backup_script_path: "/usr/local/bin/weekly_backup.sh"
+    temp_local_dir: "/tmp/backup_temp"
+
+  tasks:
+    # --- STEP 1: VALIDATION ---
+    - name: Verify SSH connectivity (Passwordless check)
+      ansible.builtin.command: 
+        cmd: "ssh -o BatchMode=yes -o ConnectTimeout=5 {{ remote_backup_user }}@{{ remote_backup_host }} exit"
+      register: ssh_check
+      failed_when: ssh_check.rc != 0
+      changed_when: false
+
+    - name: Ensure remote directory exists
+      ansible.builtin.command: 
+        cmd: "ssh {{ remote_backup_user }}@{{ remote_backup_host }} 'mkdir -p {{ remote_backup_dir }}'"
+      changed_when: false
+
+    # --- STEP 2: DEPLOY SCRIPT FROM TEMPLATE ---
+    - name: Deploy the backup script from template
+      ansible.builtin.template:
+        src: templates/backup_script.sh.j2
+        dest: "{{ backup_script_path }}"
+        mode: '0755'
+
+    # --- STEP 3: SYSTEMD CONFIGURATION ---
+    - name: Create Systemd Service file
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/weekly-backup.service
+        content: |
+          [Unit]
+          Description=Weekly Remote Backup
+          After=network.target
+          [Service]
+          Type=oneshot
+          ExecStart={{ backup_script_path }}
+          User=root
+          Group=root
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Create Systemd Timer file
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/weekly-backup.timer
+        content: |
+          [Unit]
+          Description=Runs the backup script every Monday at 3:00 AM
+          [Timer]
+          OnCalendar=Monday *-*-* 03:00:00
+          Persistent=true
+          [Install]
+          WantedBy=timers.target
+
+    - name: Reload systemd and enable timer
+      ansible.builtin.systemd:
+        daemon_reload: yes
+        name: weekly-backup.timer
+        enabled: yes
+        state: started
