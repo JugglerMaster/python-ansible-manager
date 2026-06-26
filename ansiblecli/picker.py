@@ -90,6 +90,8 @@ class ProjectPicker:
                 lc = self.last_configs.get(proj["name"])
                 if lc and lc.get("host"):
                     host_info = f"last: {lc['host']}"
+                elif lc:
+                    host_info = "last: all hosts"
                 else:
                     host_info = "(never run)"
 
@@ -101,7 +103,10 @@ class ProjectPicker:
 
         fragments.append(("", "\n"))
         if self.search_active:
-            fragments.append(("class:footer", "  \u2191\u2193 navigate  Enter confirm  Esc cancel\n"))
+            fragments.append(("class:footer", "  type to filter  \u2191\u2193 navigate  Enter select  Esc cancel\n"))
+        elif self.search_text:
+            fragments.append(("class:footer",
+                "  \u2191\u2193 nav  \u2190\u2192 page  s sort  / edit search  Enter run  c settings  h history  v view  Esc back\n"))
         else:
             fragments.append(("class:footer",
                 "  \u2191\u2193 nav  \u2190\u2192 page  s sort  / search  Enter run  c settings  h history  v view  Esc back\n"))
@@ -144,10 +149,9 @@ class ProjectPicker:
         self.selected_abs = 0
         self.page = 0
 
-    def _toggle_search(self):
-        self.search_active = not self.search_active
-        if not self.search_active:
-            self.search_text = ""
+    def _cancel_search(self):
+        self.search_active = False
+        self.search_text = ""
         self.selected_abs = 0
         self.page = 0
 
@@ -161,13 +165,15 @@ class ProjectPicker:
         kb = KeyBindings()
         is_searching = Condition(lambda: self.search_active)
 
-        @kb.add("up", filter=~is_searching)
+        @kb.add("up")
         def _(event):
+            self.search_active = False
             self._move(-1)
             event.app.invalidate()
 
-        @kb.add("down", filter=~is_searching)
+        @kb.add("down")
         def _(event):
+            self.search_active = False
             self._move(1)
             event.app.invalidate()
 
@@ -183,44 +189,46 @@ class ProjectPicker:
 
         @kb.add("s", filter=~is_searching)
         def _(event):
+            self.search_active = False
             self._cycle_sort()
             event.app.invalidate()
 
         @kb.add("/", filter=~is_searching)
         def _(event):
-            self._toggle_search()
+            self.search_active = not self.search_active
+            if not self.search_active:
+                self.selected_abs = 0
+                self.page = 0
             event.app.invalidate()
 
         @kb.add(Keys.Any, filter=is_searching)
         def _(event):
-            key = event.key
-            if len(key) == 1 and key.isprintable():
+            kp = event.key_sequence[0]
+            key = kp.key
+            if isinstance(key, str) and len(key) == 1:
                 self.search_text += key
-            elif key == "backspace":
+                self.selected_abs = 0
+                self.page = 0
+            elif key == Keys.Backspace:
                 self.search_text = self.search_text[:-1]
-            self.selected_abs = 0
-            self.page = 0
+                self.selected_abs = 0
+                self.page = 0
             event.app.invalidate()
 
-        @kb.add("enter", filter=is_searching)
-        def _(event):
-            self._toggle_search()
-            event.app.invalidate()
-
-        @kb.add("escape", filter=is_searching)
-        def _(event):
-            self._toggle_search()
-            event.app.invalidate()
-
-        @kb.add("escape", filter=~is_searching)
-        def _(event):
-            event.app.exit((None, None))
-
-        @kb.add("enter", filter=~is_searching)
+        @kb.add("enter")
         def _(event):
             proj = self._current_project()
             if proj:
                 event.app.exit((proj, "run"))
+            event.app.invalidate()
+
+        @kb.add("escape")
+        def _(event):
+            if self.search_active:
+                self._cancel_search()
+            else:
+                event.app.exit((None, None))
+            event.app.invalidate()
 
         @kb.add("c", filter=~is_searching)
         def _(event):

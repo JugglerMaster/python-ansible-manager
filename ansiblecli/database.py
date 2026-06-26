@@ -52,17 +52,35 @@ def init_db():
     """)
     conn.commit()
     conn.close()
+    migrate_schema()
 
 
-def add_run(project, playbook_path, host, check_mode, tags, extra_vars, status, exit_code, output):
+def add_run(project, playbook_path, host, check_mode, tags, extra_vars, status, exit_code, output,
+            started_at=None, finished_at=None, recap=None):
+    if started_at is None:
+        started_at = datetime.now(timezone.utc).isoformat()
+    if finished_at is None:
+        finished_at = started_at
     conn = get_connection()
     conn.execute(
         """INSERT INTO run_history
-           (project, playbook_path, host, check_mode, tags, extra_vars, status, exit_code, output, started_at, finished_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (project, playbook_path, host, check_mode, tags, extra_vars, status, exit_code, output, started_at, finished_at, recap)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (project, playbook_path, host, int(check_mode), tags or None, extra_vars or None,
-         status, exit_code, output, datetime.now(timezone.utc).isoformat(), datetime.now(timezone.utc).isoformat()),
+         status, exit_code, output, started_at, finished_at, recap),
     )
+    conn.commit()
+    conn.close()
+
+
+def migrate_schema():
+    conn = get_connection()
+    conn.execute("UPDATE run_history SET host = NULL WHERE host = 'All hosts' OR host = 'all' OR host = '*'")
+    conn.execute("UPDATE last_config SET host = NULL WHERE host = 'All hosts' OR host = 'all' OR host = '*'")
+    try:
+        conn.execute("ALTER TABLE run_history ADD COLUMN recap TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 

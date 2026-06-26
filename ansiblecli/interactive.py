@@ -12,11 +12,43 @@ from ansiblecli.discover import discover_projects
 console = Console()
 
 
+def parse_recap(output):
+    if not output:
+        return None
+    lines = output.splitlines()
+    in_recap = False
+    host_summaries = []
+    for line in lines:
+        if "PLAY RECAP" in line:
+            in_recap = True
+            continue
+        if in_recap:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if ":" in stripped:
+                hostname, pairs = stripped.split(":", 1)
+                hostname = hostname.strip()
+                pairs = pairs.strip()
+                kept = []
+                for part in pairs.split():
+                    if "=" in part:
+                        k, v = part.split("=", 1)
+                        if k in ("ok", "failed", "unreachable"):
+                            kept.append(f"{k}={v}")
+                if kept:
+                    host_summaries.append(f"{hostname}: {'  '.join(kept)}")
+            else:
+                break
+    return " | ".join(host_summaries) if host_summaries else None
+
+
 def pick_main_action():
     choices = [
         questionary.Choice(title="▶  Run a playbook", value="run"),
         questionary.Choice(title="   Manage inventory", value="inventory"),
         questionary.Choice(title="   View run history", value="history"),
+        questionary.Choice(title="   Settings", value="settings"),
         questionary.Choice(title="   Quit", value="quit"),
     ]
     result = questionary.select(
@@ -31,59 +63,10 @@ def pick_project():
     if not projects:
         console.print("[yellow]No projects found in playbooks/ directory.[/yellow]")
         console.print("Create a subdirectory under [bold]playbooks/[/bold] with a .yml file.")
-        return None
+        return None, None
 
-    page_size = 10
-    total = len(projects)
-    pages = (total + page_size - 1) // page_size
-    page = 0
-
-    while True:
-        start = page * page_size
-        end = min(start + page_size, total)
-        page_projects = projects[start:end]
-
-        choices = []
-        for p in page_projects:
-            last = database.get_last_config(p["name"])
-            suffix = ""
-            if last:
-                host_info = f" (last: {last['host']})" if last.get("host") else ""
-                suffix = host_info or ""
-            choices.append(questionary.Choice(
-                title=f"{p['name']}{'  ' + suffix if suffix else ''}",
-                value=p["name"],
-            ))
-
-        if pages > 1:
-            if page < pages - 1:
-                choices.append(questionary.Choice(
-                    title=f"→  Next page ({end + 1}-{min(end + page_size, total)})",
-                    value="__next__",
-                ))
-            if page > 0:
-                choices.append(questionary.Choice(
-                    title=f"←  Previous page ({start - page_size + 1}-{start})",
-                    value="__prev__",
-                ))
-
-        choices.append(questionary.Choice(title="←  Back", value="__back__"))
-
-        header = f"Select a playbook project (Page {page + 1}/{pages}, {total} total):" if pages > 1 else "Select a playbook project:"
-        result = questionary.select(header, choices=choices).ask()
-
-        if result is None or result == "__back__":
-            return None
-        if result == "__next__":
-            page += 1
-            continue
-        if result == "__prev__":
-            page -= 1
-            continue
-        for p in projects:
-            if p["name"] == result:
-                return p
-    return None
+    from ansiblecli.picker import ProjectPicker
+    return ProjectPicker(projects).run()
 
 
 def pick_playbook(project):
@@ -98,72 +81,86 @@ def pick_playbook(project):
     return result if result else project["playbooks"][0]
 
 
-def project_menu(project):
-    last = database.get_last_config(project["name"])
-
-    choices = []
-    if last:
-        host_display = last.get("host") or "(no host)"
-        choices.append(questionary.Choice(
-            title=f"▶  Run with last config (host: {host_display})",
-            value="run_last",
-        ))
-    choices.append(questionary.Choice(title="   Change settings", value="run_settings"))
-    choices.append(questionary.Choice(title="   View run history", value="history"))
-    choices.append(questionary.Choice(title="   View playbook", value="view"))
-    choices.append(questionary.Choice(title="←  Back to projects", value="back"))
-
-    result = questionary.select(
-        f"Project: {project['name']}",
-        choices=choices,
-    ).ask()
-    return result if result else "back"
-
-
 def get_run_settings(project, last_config=None):
-    hosts = database.get_known_hosts()
-    host_choices = [h["hostname"] for h in hosts] if hosts else []
-    default_host = last_config.get("host") if last_config else None
+    try:
+        hosts = database.get_known_hosts()
+        default_host = last_config.get("host") if last_config else None
+        all_hosts_choice = questionary.Choice(title="All hosts", value="__all__")
 
-    if not host_choices:
-        host = questionary.text("Target host (hostname or IP):", default=default_host or "").ask()
-    else:
-        host = questionary.select(
-            "Target host:",
-            choices=host_choices + [questionary.Choice(title="+ Enter custom host...", value="__custom__")],
-            default=default_host or host_choices[0],
+        if not hosts:
+            host = questionary.select(
+                "Target host:",
+                choices=[all_hosts_choice, questionary.Choice(title="+ Enter specific host...", value="__custom__")],
+                default=all_hosts_choice,
+            ).ask()
+            if host is None:
+                return None
+            if host == "__custom__":
+                host = questionary.text("Target host (hostname or IP):").ask()
+                if host is None:
+                    return None
+        else:
+            host_choices = [all_hosts_choice] + [questionary.Choice(title=h["hostname"], value=h["hostname"]) for h in hosts]
+            host_choices.append(questionary.Choice(title="+ Enter custom host...", value="__custom__"))
+
+            if default_host is None:
+                default = all_hosts_choice
+            else:
+                found = [c for c in host_choices if c.value == default_host]
+                default = found[0] if found else all_hosts_choice
+
+            host = questionary.select(
+                "Target host:",
+                choices=host_choices,
+                default=default,
+            ).ask()
+            if host is None:
+                return None
+            if host == "__custom__":
+                host = questionary.text("Target host (hostname or IP):").ask()
+                if host is None:
+                    return None
+
+        check_default = bool(last_config.get("check_mode")) if last_config else False
+        check_label = "[Y/n]" if check_default else "[y/N]"
+        check_mode = questionary.confirm(
+            f"Dry run (--check mode)? {check_label}",
+            default=check_default,
         ).ask()
-        if host == "__custom__":
-            host = questionary.text("Target host (hostname or IP):", default=default_host or "").ask()
+        if check_mode is None:
+            return None
 
-    check_mode = questionary.confirm(
-        "Dry run (--check mode)?",
-        default=bool(last_config.get("check_mode")) if last_config else False,
-    ).ask()
+        last_tags = last_config.get("tags") if last_config else ""
+        tags = questionary.text(
+            "Tags (comma-separated, optional):",
+            default=last_tags or "",
+        ).ask()
+        if tags is None:
+            return None
+        tags = tags or None
 
-    last_tags = last_config.get("tags") if last_config else ""
-    tags = questionary.text(
-        "Tags (comma-separated, optional):",
-        default=last_tags or "",
-    ).ask() or None
+        last_vars = last_config.get("extra_vars") if last_config else ""
+        extra_vars = questionary.text(
+            "Extra vars (key=val,key=val, optional):",
+            default=last_vars or "",
+        ).ask()
+        if extra_vars is None:
+            return None
+        extra_vars = extra_vars or None
 
-    last_vars = last_config.get("extra_vars") if last_config else ""
-    extra_vars = questionary.text(
-        "Extra vars (key=val,key=val, optional):",
-        default=last_vars or "",
-    ).ask() or None
+        save = questionary.confirm("Save these settings as default? [Y/n]", default=True).ask()
+        if save is None:
+            return None
 
-    save = questionary.confirm("Save these settings as default?").ask()
-    if save is None:
-        save = False
-
-    return {
-        "host": host or None,
-        "check_mode": check_mode,
-        "tags": tags,
-        "extra_vars": extra_vars,
-        "save": save,
-    }
+        return {
+            "host": None if host == "__all__" else (host or None),
+            "check_mode": check_mode,
+            "tags": tags,
+            "extra_vars": extra_vars,
+            "save": save,
+        }
+    except KeyboardInterrupt:
+        return None
 
 
 def show_history(project_name=None):
@@ -177,6 +174,7 @@ def show_history(project_name=None):
     table.add_column("Project")
     table.add_column("Host")
     table.add_column("Status")
+    table.add_column("Host Results")
     table.add_column("Duration")
 
     for r in rows:
@@ -190,10 +188,10 @@ def show_history(project_name=None):
 
         finished = r["finished_at"]
         duration = ""
-        if started and finished:
+        if r["started_at"] and r["finished_at"]:
             try:
                 d1 = datetime.fromisoformat(r["started_at"])
-                d2 = datetime.fromisoformat(finished)
+                d2 = datetime.fromisoformat(r["finished_at"])
                 secs = (d2 - d1).total_seconds()
                 duration = f"{secs:.0f}s"
             except ValueError:
@@ -205,11 +203,39 @@ def show_history(project_name=None):
             "cancelled": "yellow",
         }.get(r["status"], "white")
 
+        recap = ""
+        if r.get("recap"):
+            recap_str = ""
+            for host_rec in r["recap"].split(" | "):
+                if ":" in host_rec:
+                    hname, rest = host_rec.split(":", 1)
+                    hname = hname.strip()
+                    rest = rest.strip()
+                else:
+                    hname, rest = "", host_rec.strip()
+                pairs = []
+                for pair in rest.split():
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        if k == "ok":
+                            pairs.append(f"[green]ok={v}[/green]")
+                        elif k == "failed":
+                            pairs.append(f"[red]failed={v}[/red]")
+                        elif k == "unreachable":
+                            pairs.append(f"[yellow]unreachable={v}[/yellow]")
+                if recap_str:
+                    recap_str += " [dim]|[/dim] "
+                if hname:
+                    recap_str += f"[bold]{hname}:[/bold] "
+                recap_str += "  ".join(pairs)
+            recap = recap_str
+
         table.add_row(
             str(started or ""),
             r["project"],
-            r["host"] or "-",
+            r["host"] or "all",
             Text(r["status"], style=status_style),
+            recap,
             duration,
         )
 
@@ -230,17 +256,94 @@ def show_run_result(result, playbook_path):
     )
     console.print(panel)
 
-    if result.stdout:
-        console.print("[bold]Output:[/bold]")
-        console.print(result.stdout[:2000])
 
-    if result.stderr:
-        console.print("[bold]Errors:[/bold]")
-        console.print(result.stderr[:1000])
+def _do_run(project, playbook_path, settings):
+    if settings.get("save"):
+        database.save_last_config(
+            project["name"],
+            settings["host"],
+            settings["check_mode"],
+            settings["tags"],
+            settings["extra_vars"],
+        )
+
+    if settings.get("host"):
+        database.update_host_last_used(settings["host"])
+
+    from ansiblecli.runner import run_playbook
+    from ansiblecli.inventory import write_inventory_file
+    write_inventory_file()
+
+    from datetime import datetime, timezone
+    started_at = datetime.now(timezone.utc).isoformat()
+
+    result = run_playbook(
+        playbook_path,
+        host=settings["host"],
+        check_mode=settings["check_mode"],
+        tags=settings["tags"],
+        extra_vars=settings["extra_vars"],
+    )
+
+    finished_at = datetime.now(timezone.utc).isoformat()
+
+    status = "failed"
+    exit_code = -1
+    output = None
+
+    recap = None
+    if result is not None:
+        status = "success" if result.returncode == 0 else "failed"
+        exit_code = result.returncode
+        output = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()[:5000] or None
+        recap = parse_recap(result.stdout)
+
+    database.add_run(
+        project["name"],
+        playbook_path,
+        settings["host"],
+        settings["check_mode"],
+        settings["tags"],
+        settings["extra_vars"],
+        status,
+        exit_code,
+        output,
+        started_at=started_at,
+        finished_at=finished_at,
+        recap=recap,
+    )
+
+    return result
+
+
+def _run_and_loop(project, playbook_path, settings):
+    result = _do_run(project, playbook_path, settings)
+    show_run_result(result, playbook_path)
+
+
+def _run_with_last_or_settings(project, playbook_path):
+    last = database.get_last_config(project["name"])
+    if last:
+        settings = {
+            "host": last.get("host"),
+            "check_mode": bool(last.get("check_mode")),
+            "tags": last.get("tags"),
+            "extra_vars": last.get("extra_vars"),
+            "save": False,
+        }
+        _run_and_loop(project, playbook_path, settings)
+    else:
+        settings = get_run_settings(project, last)
+        if settings is None:
+            return
+        _run_and_loop(project, playbook_path, settings)
 
 
 def inventory_menu():
     while True:
+        console.clear()
+        console.print(Panel(f"[bold]AnsibleCLI v{__version__}[/bold] — Interactive Playbook Manager", border_style="cyan"))
+        console.print()
         choices = [
             questionary.Choice(title="   List hosts", value="list"),
             questionary.Choice(title="   Add a host", value="add"),
@@ -312,6 +415,29 @@ def inventory_menu():
                     console.print(f"  - {g}")
 
 
+def settings_menu():
+    while True:
+        console.clear()
+        console.print(Panel(f"[bold]AnsibleCLI v{__version__}[/bold] — Settings", border_style="cyan"))
+        console.print()
+        choices = [
+            questionary.Choice(title="   Clear run history", value="clear"),
+            questionary.Choice(title="←  Back to main menu", value="back"),
+        ]
+        action = questionary.select("Settings:", choices=choices).ask()
+
+        if action is None or action == "back":
+            break
+
+        if action == "clear":
+            if questionary.confirm("Clear all run history?").ask():
+                database.get_connection().execute("DELETE FROM run_history").connection.commit()
+                console.print("[green]Run history cleared.[/green]")
+            else:
+                console.print("[dim]Cancelled.[/dim]")
+            console.input("[dim]Press Enter to continue...[/dim]")
+
+
 def interactive_loop():
     projects = discover_projects()
 
@@ -334,24 +460,22 @@ def interactive_loop():
             break
 
         if action == "run":
-            project = pick_project()
-            if not project:
-                continue
-
-            playbook_path = pick_playbook(project)
-            if not playbook_path:
-                continue
-
             while True:
-                menu_action = project_menu(project)
-                if menu_action == "back":
+                project, proj_action = pick_project()
+                if project is None:
                     break
 
-                if menu_action == "history":
-                    show_history(project["name"])
+                playbook_path = pick_playbook(project)
+                if not playbook_path:
                     continue
 
-                if menu_action == "view":
+                if proj_action == "history":
+                    console.clear()
+                    show_history(project["name"])
+                    console.input("[dim]Press Enter to return...[/dim]")
+                    continue
+
+                if proj_action == "view":
                     try:
                         with open(playbook_path) as f:
                             content = f.read()
@@ -360,69 +484,17 @@ def interactive_loop():
                         console.print(f"[red]Error reading playbook: {e}[/red]")
                     continue
 
-                last = database.get_last_config(project["name"])
-                if menu_action == "run_last":
-                    settings = {
-                        "host": last.get("host") if last else None,
-                        "check_mode": bool(last.get("check_mode")) if last else False,
-                        "tags": last.get("tags") if last else None,
-                        "extra_vars": last.get("extra_vars") if last else None,
-                        "save": False,
-                    }
-                else:
+                if proj_action == "settings":
+                    last = database.get_last_config(project["name"])
                     settings = get_run_settings(project, last)
+                    if settings is None:
+                        continue
+                    _run_and_loop(project, playbook_path, settings)
+                    continue
 
-                if settings["save"]:
-                    database.save_last_config(
-                        project["name"],
-                        settings["host"],
-                        settings["check_mode"],
-                        settings["tags"],
-                        settings["extra_vars"],
-                    )
-
-                if settings.get("host"):
-                    database.update_host_last_used(settings["host"])
-
-                from ansiblecli.runner import run_playbook
-                from ansiblecli.inventory import write_inventory_file
-                write_inventory_file()
-
-                result = run_playbook(
-                    playbook_path,
-                    host=settings["host"],
-                    check_mode=settings["check_mode"],
-                    tags=settings["tags"],
-                    extra_vars=settings["extra_vars"],
-                )
-
-                status = "failed"
-                exit_code = -1
-                output = None
-
-                if result is not None:
-                    status = "success" if result.returncode == 0 else "failed"
-                    exit_code = result.returncode
-                    output = (result.stdout or "") + "\n" + (result.stderr or "")
-                    output = output.strip()[:5000] or None
-
-                database.add_run(
-                    project["name"],
-                    playbook_path,
-                    settings["host"],
-                    settings["check_mode"],
-                    settings["tags"],
-                    settings["extra_vars"],
-                    status,
-                    exit_code,
-                    output,
-                )
-
-                show_run_result(result, playbook_path)
-
-                cont = questionary.confirm("Run again?", default=False).ask()
-                if cont is None or not cont:
-                    break
+                if proj_action == "run":
+                    _run_with_last_or_settings(project, playbook_path)
+                    continue
 
         elif action == "inventory":
             inventory_menu()
@@ -432,7 +504,12 @@ def interactive_loop():
             proj_choices = [p["name"] for p in projects]
             proj_choices.insert(0, "All projects")
             selected = questionary.select("Show history for:", choices=proj_choices).ask()
+            console.clear()
             if selected == "All projects":
                 show_history()
             else:
                 show_history(selected)
+            console.input("[dim]Press Enter to return...[/dim]")
+
+        elif action == "settings":
+            settings_menu()
