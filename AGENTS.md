@@ -80,6 +80,10 @@ ansiblecli → Main menu (Run / Inventory / History / Settings / Quit)
 - `host=None` means run against all hosts (no `-l` flag); stored as `"__all__"` sentinel in prompts
 - Settings menu items: Clear run history
 
+## Versioning
+
+Increment `__version__` in `ansiblecli/__init__.py` after major changes or new features.
+
 ## Launcher
 
 `./ansiblecli.sh` auto-creates `.venv`, `pip install -e .`, delegates to entry point.
