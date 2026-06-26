@@ -20,13 +20,14 @@ ansiblecli
 
 **Requirement:** `ansible-playbook` must be on your PATH — install Ansible via `apt`/`brew`/`pip` or inside the same venv.
 
-## Manual Install
+## Features
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
+- **Keyboard-driven project picker** — pagination, live search (`/`), sort modes (`s`), hotkeys for run/settings/history/view
+- **Live streaming output** — ansible-playbook output streams in real time while still being captured for history
+- **Run history** — per-project or global, with host-level recap (ok/failed/unreachable counts from PLAY RECAP)
+- **Playbook viewer** — full-screen YAML via `less` with syntax highlighting, line numbers, scroll, and search
+- **Settings menu** — configurable run options (host, check mode, tags, extra vars), clear run history
+- **Inventory management** — CRUD hosts, group listing, auto-generated YAML inventory
 
 ## Directory Structure
 
