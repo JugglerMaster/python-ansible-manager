@@ -3,6 +3,7 @@ from datetime import datetime
 import questionary
 from rich.console import Console
 from rich.panel import Panel
+from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
@@ -461,6 +462,9 @@ def interactive_loop():
 
         if action == "run":
             while True:
+                console.clear()
+                console.print(Panel(f"[bold]AnsibleCLI v{__version__}[/bold] — Interactive Playbook Manager", border_style="cyan"))
+                console.print()
                 project, proj_action = pick_project()
                 if project is None:
                     break
@@ -479,9 +483,14 @@ def interactive_loop():
                     try:
                         with open(playbook_path) as f:
                             content = f.read()
-                        console.print(Panel(content, title=playbook_path, border_style="blue"))
+                        help_bar = Text("  ↑↓ scroll  •  / search  •  q close  ", style="white on blue")
+                        syntax = Syntax(content, "yaml", line_numbers=True, theme="one-dark")
+                        with console.pager():
+                            console.print(help_bar)
+                            console.print(Panel(syntax, title=playbook_path, border_style="blue"))
                     except OSError as e:
                         console.print(f"[red]Error reading playbook: {e}[/red]")
+                        console.input("[dim]Press Enter to return...[/dim]")
                     continue
 
                 if proj_action == "settings":
