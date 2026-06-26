@@ -5,6 +5,13 @@ from pathlib import Path
 from ansiblecli.config import get
 
 
+class PlaybookResult:
+    def __init__(self, returncode, stdout):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = ""
+
+
 def run_playbook(playbook_path, host=None, check_mode=False, tags=None, extra_vars=None):
     inventory_dir = Path(get("inventory_dir"))
     inventory_file = inventory_dir / get("inventory_file")
@@ -32,8 +39,20 @@ def run_playbook(playbook_path, host=None, check_mode=False, tags=None, extra_va
                 cmd.extend(["-e", ev])
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        return result
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        output_lines = []
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            output_lines.append(line)
+        process.wait()
+        full_output = "".join(output_lines)
+        return PlaybookResult(returncode=process.returncode, stdout=full_output)
     except FileNotFoundError:
         print("Error: 'ansible-playbook' not found. Is Ansible installed?", file=sys.stderr)
         return None

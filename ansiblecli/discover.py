@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import yaml
@@ -36,6 +37,7 @@ def discover_projects():
                 "path": str(child),
                 "playbooks": sorted(str(p) for p in playbooks),
                 "description": description or child.name,
+                "mtime": max(os.path.getmtime(p) for p in playbooks),
             })
         elif child.suffix.lower() in (".yml", ".yaml"):
             name = child.stem
@@ -45,6 +47,7 @@ def discover_projects():
                 "path": str(child.parent),
                 "playbooks": [str(child)],
                 "description": description or name,
+                "mtime": os.path.getmtime(child),
             })
 
     return projects
