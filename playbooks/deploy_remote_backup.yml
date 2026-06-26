@@ -4,18 +4,23 @@
   become: yes
   vars:
     # --- REMOTE DESTINATION CONFIG ---
-    remote_backup_host: "192.168.1.50"
-    remote_backup_user: "backupuser"
-    remote_backup_dir: "/mnt/backups/nodes"
+    remote_backup_host: "192.168.1.33"
+    remote_backup_user: "dadisc01"
+    remote_backup_dir: "/srv/dev-disk-by-uuid-4dcccb3a-e560-4c0f-8f7e-9aa204169738/storage/backups"
 
     # --- LOCAL CONFIG (ON THE TARGET SERVER) ---
     backup_log_path: "/var/log/weekly_backup.log"
     backup_script_path: "/usr/local/bin/weekly_backup.sh"
     temp_local_dir: "/tmp/backup_temp"
+    backup_dirs:
+      - /var/www/html
+      - /home
+      - /etc
 
   tasks:
     # --- STEP 1: VALIDATION ---
     - name: Verify SSH connectivity (Passwordless check)
+      become_user: "{{ remote_backup_user }}"
       ansible.builtin.command: 
         cmd: "ssh -o BatchMode=yes -o ConnectTimeout=5 {{ remote_backup_user }}@{{ remote_backup_host }} exit"
       register: ssh_check
@@ -23,14 +28,15 @@
       changed_when: false
 
     - name: Ensure remote directory exists
+      become_user: "{{ remote_backup_user }}"
       ansible.builtin.command: 
-        cmd: "ssh {{ remote_backup_user }}@{{ remote_backup_host }} 'mkdir -p {{ remote_backup_dir }}'"
+        cmd: "ssh {{ remote_backup_user }}@{{ remote_backup_host }} 'mkdir -p {{ remote_backup_dir }}/{{ ansible_hostname }}'"
       changed_when: false
 
     # --- STEP 2: DEPLOY SCRIPT FROM TEMPLATE ---
     - name: Deploy the backup script from template
       ansible.builtin.template:
-        src: templates/backup_script.sh.j2
+        src: ../playfiles/deploy_remote_backup/backup_script.sh.j2
         dest: "{{ backup_script_path }}"
         mode: '0755'
 
