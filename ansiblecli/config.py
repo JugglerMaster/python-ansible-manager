@@ -10,6 +10,9 @@ DEFAULT_CONFIG = {
     "playfiles_dir": str(Path.cwd() / "playfiles"),
     "inventory_dir": str(Path.cwd() / "inventory"),
     "inventory_file": "hosts.yml",
+    "machine_setup_script": "",
+    "machine_setup_become_pass": "",
+    "machine_setup_default_hostname": "",
 }
 
 

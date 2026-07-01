@@ -55,7 +55,7 @@ inventory/hosts.yml          # Auto-generated, passed as -i
 ## Interactive Flow
 
 ```
-ansiblecli → Main menu (Run / Inventory / History / Settings / Quit)
+ansiblecli → Main menu (Run / Inventory / Machine Setup / History / Settings / Quit)
   Run → pick_project() → pick_playbook()
     Picker hotkeys: ↑↓ nav, ←→ page, s sort, / search, Enter run, c settings, h history, v view, Esc back
     Run → live ansible-playbook stream → result panel → back to picker
@@ -63,6 +63,7 @@ ansiblecli → Main menu (Run / Inventory / History / Settings / Quit)
     History → table with host results recap column
     Settings → run settings prompts (host, check, tags, extra vars)
   Inventory → CRUD hosts + list groups
+  Machine Setup → pick script (or configure) → enter host → live stream → add to inventory
   History → pick project filter → table with recap + duration
   Settings → Clear run history (with confirmation)
 ```
@@ -79,6 +80,13 @@ ansiblecli → Main menu (Run / Inventory / History / Settings / Quit)
 - Picker actions return `(project_dict, action_string)` — actions: `run`, `settings`, `history`, `view`
 - `host=None` means run against all hosts (no `-l` flag); stored as `"__all__"` sentinel in prompts
 - Settings menu items: Clear run history
+- `run_subprocess()` in `runner.py` is the shared streaming subprocess utility used by both `run_playbook()` and `run_setup_script()`
+- `run_subprocess()` uses `preexec_fn=os.setsid` so `KeyboardInterrupt` propagates to the child process tree
+- `machinesetup.run_setup_script(host)` passes host as `$1` and sets `ANSIBLE_TARGET_HOST` and `ANSIBLE_BECOME_PASS` env vars
+- Script runs from its own parent directory via `cwd=str(script.parent)` so relative paths work
+- `resolve_script_path(override)` handles: explicit override → configured value → auto-discover `playbooks/newMachineSetup.sh`
+- `machine_setup_menu()` in interactive menu: config check → host prompt → password prompt → live execution → add-to-inventory prompt
+- No run_history tracking for machine setup (per user preference)
 
 ## Versioning
 
@@ -87,6 +95,32 @@ Increment `__version__` in `ansiblecli/__init__.py` after major changes or new f
 ## Launcher
 
 `./ansiblecli.sh` auto-creates `.venv`, `pip install -e .`, delegates to entry point.
+
+## Machine Setup Feature
+
+- [x] `ansiblecli machinesetup <host>` — CLI command to run a machine setup script against a new host
+- [x] Interactive menu item: Machine Setup (between Inventory and History)
+- [x] Config: `machine_setup_script`, `machine_setup_become_pass`
+- [x] Auto-discovery of `playbooks/newMachineSetup.sh`
+- [x] Subprocess execution with env var injection (host, become pass) via shared `run_subprocess()` utility
+- [x] Post-run host import to inventory (known_hosts)
+- [x] KeyboardInterrupt propagates to child process tree via process group
+
+Config keys for Machine Setup:
+
+| Key | Purpose |
+|---|---|
+| `machine_setup_script` | Path to the machine setup shell script |
+| `machine_setup_become_pass` | Default become password exported as `ANSIBLE_BECOME_PASS` to the script |
+
+The script runs from its own parent directory so relative paths (e.g. `./sshsetup.sh`) work. The target host is passed as `$1` and exported as `ANSIBLE_TARGET_HOST`.
+
+## Potential Future Features
+
+- Multi-playbook batch runs (run a sequence of playbooks as a single operation)
+- Playbook templates / scaffolding (`ansiblecli new <project>`)
+- Per-host variable store (host_vars/)
+- SSH key generation and management from within the tool
 
 ## Ansible Dependency
 

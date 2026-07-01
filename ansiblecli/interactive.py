@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 
 import questionary
 from rich.console import Console
@@ -8,7 +9,9 @@ from rich.table import Table
 from rich.text import Text
 
 from ansiblecli import __version__, database
+from ansiblecli.config import get as get_config, set_key
 from ansiblecli.discover import discover_projects
+from ansiblecli.machinesetup import resolve_script_path, run_setup_script
 
 console = Console()
 
@@ -48,6 +51,7 @@ def pick_main_action():
     choices = [
         questionary.Choice(title="▶  Run a playbook", value="run"),
         questionary.Choice(title="   Manage inventory", value="inventory"),
+        questionary.Choice(title="   Machine Setup", value="machinesetup"),
         questionary.Choice(title="   View run history", value="history"),
         questionary.Choice(title="   Settings", value="settings"),
         questionary.Choice(title="   Quit", value="quit"),
@@ -416,7 +420,97 @@ def inventory_menu():
                     console.print(f"  - {g}")
 
 
-def settings_menu():
+def machine_setup_menu():
+    console.clear()
+    console.print(Panel(f"[bold]AnsibleCLI v{__version__}[/bold] — Machine Setup", border_style="cyan"))
+    console.print()
+
+    script_path = resolve_script_path()
+    if script_path is None:
+        console.print("[yellow]No machine setup script configured.[/yellow]")
+        console.print()
+        action = questionary.select(
+            "What would you like to do?",
+            choices=[
+                questionary.Choice(title="   Configure script path in settings", value="config"),
+                questionary.Choice(title="←  Back to main menu", value="back"),
+            ],
+        ).ask()
+        if action == "config":
+            script_input = questionary.text(
+                "Path to machine setup script:",
+                default=str(Path(get_config("playbooks_dir")) / "newMachineSetup.sh"),
+            ).ask()
+            if script_input:
+                set_key("machine_setup_script", script_input)
+                console.print(f"[green]+[/green] Set machine_setup_script = {script_input}")
+        return
+
+    script_path = script_path.resolve()
+    console.print(f"Script: [bold]{script_path}[/bold]")
+    if not script_path.exists():
+        console.print(f"[red]Script not found at {script_path}[/red]")
+        console.input("[dim]Press Enter to return...[/dim]")
+        return
+    console.print()
+
+    host = questionary.text("Target host (hostname or IP):").ask()
+    if not host:
+        return
+
+    default_hostname = get_config("machine_setup_default_hostname")
+    hostname = questionary.text(
+        "Machine hostname (for set_hostname.yml):",
+        default=default_hostname or "",
+    ).ask()
+    if hostname:
+        set_key("machine_setup_default_hostname", hostname)
+
+    become_pass = get_config("machine_setup_become_pass")
+    if not become_pass:
+        set_pass = questionary.confirm("Set a become password for this session?", default=False).ask()
+        if set_pass:
+            become_pass = questionary.password("Become password:").ask()
+            if become_pass:
+                save_pass = questionary.confirm("Save password to config?", default=False).ask()
+                if save_pass:
+                    set_key("machine_setup_become_pass", become_pass)
+
+    console.clear()
+    console.print(Panel(f"[bold]AnsibleCLI v{__version__}[/bold] — Machine Setup", border_style="cyan"))
+    console.print()
+    console.print(f"Host:     [bold]{host}[/bold]")
+    console.print(f"Script:   [bold]{script_path}[/bold]")
+    console.print(f"Password: {'[yellow]configured[/yellow]' if become_pass else '[dim]none[/dim]'}")
+    console.print()
+
+    if not questionary.confirm("Run machine setup?", default=True).ask():
+        return
+
+    console.print()
+    console.print(f"[cyan]Running machine setup on [bold]{host}[/bold]...[/cyan]")
+    console.print()
+
+    result = run_setup_script(host, hostname=hostname)
+
+    if result is None:
+        console.print("[red]Failed to start machine setup script.[/red]")
+        console.input("[dim]Press Enter to return...[/dim]")
+        return
+
+    console.print()
+    if result.returncode == 0:
+        console.print(f"[green bold]✓ Machine setup completed successfully for {host}.[/green bold]")
+        add_inv = questionary.confirm("Add host to inventory?", default=True).ask()
+        if add_inv:
+            group = questionary.text("Inventory group (default: all):", default="all").ask() or "all"
+            from ansiblecli.inventory import add_host
+            add_host(host, address=host, group=group)
+            console.print(f"[green]+[/green] Added [bold]{host}[/bold] to inventory (group: {group}).")
+    else:
+        console.print(f"[red bold]✗ Machine setup failed with exit code {result.returncode}.[/red bold]")
+
+    console.input("[dim]Press Enter to return...[/dim]")
     while True:
         console.clear()
         console.print(Panel(f"[bold]AnsibleCLI v{__version__}[/bold] — Settings", border_style="cyan"))
@@ -507,6 +601,9 @@ def interactive_loop():
 
         elif action == "inventory":
             inventory_menu()
+
+        elif action == "machinesetup":
+            machine_setup_menu()
 
         elif action == "history":
             projects = discover_projects()

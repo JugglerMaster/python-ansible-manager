@@ -5,8 +5,13 @@
   tasks:
    - name: Setup Sudoers
      copy:
-      src: playfiles/sudo/sudoers
+      src: ../playfiles/sudo/sudoers
       dest: /etc/sudoers
+   - name: Ensure dadisc01 is in sudo group
+     user:
+      name: dadisc01
+      groups: sudo
+      append: yes
    - name: Remove file (delete file)
      ansible.builtin.file:
       path: /etc/sudoers.d/10-installer

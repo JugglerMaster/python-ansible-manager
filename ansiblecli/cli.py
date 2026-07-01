@@ -17,6 +17,7 @@ from ansiblecli.inventory import (
     remove_host as inv_remove_host,
     write_inventory_file,
 )
+from ansiblecli.machinesetup import resolve_script_path, run_setup_script
 
 app = typer.Typer(
     name="ansiblecli",
@@ -181,6 +182,44 @@ def history(
     database.init_db()
     from ansiblecli.interactive import show_history
     show_history(project)
+
+
+@app.command()
+def machinesetup(
+    host: str = typer.Argument(..., help="Hostname or IP of the new machine"),
+    script: str = typer.Option(None, "--script", "-s", help="Override the configured setup script"),
+    add_to_inventory: bool = typer.Option(True, "--add-to-inventory/--no-add", help="Add host to inventory on success"),
+):
+    """Run the machine setup script against a new host."""
+    database.init_db()
+
+    script_path = resolve_script_path(script)
+    if script_path is None:
+        console.print("[red]Error: no machine setup script configured or found.[/red]")
+        console.print("Set one with: [bold]ansiblecli config machine_setup_script <path>[/bold]")
+        raise typer.Exit(1)
+
+    if not script_path.exists():
+        console.print(f"[red]Error: script not found at {script_path}[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"[cyan]Running machine setup on [bold]{host}[/bold] using [bold]{script_path}[/bold][/cyan]")
+    console.print()
+
+    result = run_setup_script(host, script_path)
+
+    if result is None:
+        console.print("[red]Failed to start machine setup script.[/red]")
+        raise typer.Exit(1)
+
+    status = "success" if result.returncode == 0 else "failed"
+    console.print()
+    if status == "success":
+        console.print(f"[green bold]Machine setup completed successfully for {host}.[/green bold]")
+        if add_to_inventory:
+            console.print(f"[green]+[/green] Host [bold]{host}[/bold] already in inventory or run [bold]ansiblecli inventory add {host}[/bold]")
+    else:
+        console.print(f"[red bold]Machine setup failed with exit code {result.returncode}.[/red bold]")
 
 
 @app.command()

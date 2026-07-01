@@ -10,9 +10,9 @@
          - ssmtp
    - name: Setup ssmtp.conf
      copy:
-      src: playfiles/ssmtp/ssmtp.conf
+      src: ../playfiles/ssmtp/ssmtp.conf
       dest: /etc/ssmtp/ssmtp.conf
    - name: Setup aliase emailing
      copy:
-      src: playfiles/ssmtp/revaliases
+      src: ../playfiles/ssmtp/revaliases
       dest: /etc/ssmtp/revaliases

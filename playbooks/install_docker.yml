@@ -4,29 +4,47 @@
   strategy: free
   tasks:
    - name: Install dependencies
-     apt: 
+     ansible.builtin.apt:
        pkg:
        - coreutils
        - wget
+       - ca-certificates
+       - curl
+       - gnupg
+       - software-properties-common
        - apt-transport-https
        - lsb-release
-       - ca-certificates
-       - software-properties-common
-       - gnupg-agent
-   - name: Install apt key
-     apt_key:
+       - python3-pip
+       update_cache: yes
+
+   - name: Add Docker GPG key
+     ansible.builtin.apt_key:
        url: https://download.docker.com/linux/debian/gpg
        state: present
-   - name: add deb location for bullseye
-     apt_repository:
-       repo: deb [arch=amd64] https://download.docker.com/linux/debian bullseye stable
+
+   - name: Add Docker repository
+     ansible.builtin.apt_repository:
+       repo: "deb [arch=amd64] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
        state: present
-   - name: Install docker and docker compose
-     apt: 
+
+   - name: Install docker and docker compose plugin
+     ansible.builtin.apt:
        pkg:
         - docker-ce
         - docker-ce-cli
         - containerd.io
-        - docker-compose
+        - docker-compose-plugin
        update_cache: yes
+
+   - name: Start and enable Docker service
+     ansible.builtin.service:
+       name: docker
+       state: started
+       enabled: yes
+
+   - name: Add dadisc01 to docker group
+     ansible.builtin.user:
+       name: dadisc01
+       groups: docker
+       append: yes
        

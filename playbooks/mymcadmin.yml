@@ -9,26 +9,26 @@
       state: directory
 #  - name: copy over etc.zip
 #    copy:
-#      src: playfiles/mcmyadmin/etc.zip
+#      src: ../playfiles/mcmyadmin/etc.zip
 #      dest: /usr/local/etc.zip
 #      owner: root
 #      group: root
 #      mode: '0644'
   - name: copy over configScript
     copy:
-      src: playfiles/mcmyadmin/configScript.sh
+      src: ../playfiles/mcmyadmin/configScript.sh
       dest: /home/pi/McMyAdmin/configScript.sh
       owner: pi
       group: pi
       mode: '0644'
   - name: unzip mcmyadmin
     unarchive:
-      src: playfiles/mcmyadmin/MCMA2_glibc26_2.zip
+      src: ../playfiles/mcmyadmin/MCMA2_glibc26_2.zip
       dest: /home/pi/McMyAdmin/
 #      remote_src: yes
   - name: unzip etc file
     unarchive:
-      src: playfiles/mcmyadmin/etc.zip
+      src: ../playfiles/mcmyadmin/etc.zip
       dest: /usr/local/
 #      remote_src: yes
   - name: fix permissions for MCMA2

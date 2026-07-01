@@ -7,5 +7,5 @@
      apt: name=shairport-sync
    - name: Copy config
      copy:
-      src: playfiles/shairport-config/shairport-sync.conf
+      src: ../playfiles/shairport-config/shairport-sync.conf
       dest: /etc/shairport-sync.conf

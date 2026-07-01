@@ -1,3 +1,5 @@
+import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -5,11 +7,46 @@ from pathlib import Path
 from ansiblecli.config import get
 
 
-class PlaybookResult:
+class SubprocessResult:
     def __init__(self, returncode, stdout):
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = ""
+
+
+def run_subprocess(cmd, cwd=None, env=None):
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            preexec_fn=os.setsid,
+        )
+        output_lines = []
+        try:
+            for line in process.stdout:
+                print(line, end="", flush=True)
+                output_lines.append(line)
+            process.wait()
+        except KeyboardInterrupt:
+            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            process.wait()
+            raise
+        full_output = "".join(output_lines)
+        return SubprocessResult(returncode=process.returncode, stdout=full_output)
+    except FileNotFoundError:
+        print(f"Error: command not found — {cmd[0]}", file=sys.stderr)
+        return None
+    except Exception as e:
+        print(f"Error running command: {e}", file=sys.stderr)
+        return None
 
 
 def run_playbook(playbook_path, host=None, check_mode=False, tags=None, extra_vars=None):
@@ -38,24 +75,7 @@ def run_playbook(playbook_path, host=None, check_mode=False, tags=None, extra_va
             if "=" in ev:
                 cmd.extend(["-e", ev])
 
-    try:
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        output_lines = []
-        for line in process.stdout:
-            print(line, end="", flush=True)
-            output_lines.append(line)
-        process.wait()
-        full_output = "".join(output_lines)
-        return PlaybookResult(returncode=process.returncode, stdout=full_output)
-    except FileNotFoundError:
-        print("Error: 'ansible-playbook' not found. Is Ansible installed?", file=sys.stderr)
-        return None
-    except Exception as e:
-        print(f"Error running ansible-playbook: {e}", file=sys.stderr)
-        return None
+    result = run_subprocess(cmd)
+    if result is not None:
+        return SubprocessResult(returncode=result.returncode, stdout=result.stdout)
+    return None
