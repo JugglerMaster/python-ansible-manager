@@ -1,0 +1,7 @@
+---
+- hosts: all
+  become: yes
+  tasks:
+    - name: Reboot machine and wait for it to come back
+      ansible.builtin.reboot:
+        reboot_timeout: "{{ reboot_timeout | default(300) }}"

@@ -1,0 +1,23 @@
+---
+- name: Set hostname and reboot
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    target_hostname: "garage-mon"
+  tasks:
+    - name: Set system hostname
+      ansible.builtin.hostname:
+        name: "{{ target_hostname }}"
+    - name: Update /etc/hosts with new hostname
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\s+'
+        line: "127.0.1.1 {{ target_hostname }}"
+        state: present
+    - name: Reboot system after hostname change
+      ansible.builtin.reboot:
+        msg: "Rebooting to apply hostname change"
+        connect_timeout: 5    # Seconds to wait for SSH session to drop
+        reboot_timeout: 300   # 5 minutes (300 seconds) to wait for system to come back
+        test_command: "uptime"
