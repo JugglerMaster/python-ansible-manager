@@ -187,29 +187,29 @@ def history(
 @app.command()
 def machinesetup(
     host: str = typer.Argument(..., help="Hostname or IP of the new machine"),
+    hostname: str = typer.Option(None, "--hostname", "-n", help="Machine hostname (for set_hostname.yml)"),
     script: str = typer.Option(None, "--script", "-s", help="Override the configured setup script"),
     add_to_inventory: bool = typer.Option(True, "--add-to-inventory/--no-add", help="Add host to inventory on success"),
 ):
-    """Run the machine setup script against a new host."""
+    """Run machine setup against a new host."""
     database.init_db()
 
-    script_path = resolve_script_path(script)
-    if script_path is None:
-        console.print("[red]Error: no machine setup script configured or found.[/red]")
-        console.print("Set one with: [bold]ansiblecli config machine_setup_script <path>[/bold]")
-        raise typer.Exit(1)
+    # If hostname not provided via flag, try saved default
+    if not hostname:
+        from ansiblecli.config import get as get_config
+        hostname = get_config("machine_setup_default_hostname") or None
 
-    if not script_path.exists():
-        console.print(f"[red]Error: script not found at {script_path}[/red]")
-        raise typer.Exit(1)
-
-    console.print(f"[cyan]Running machine setup on [bold]{host}[/bold] using [bold]{script_path}[/bold][/cyan]")
+    console.print(f"[cyan]Running machine setup on [bold]{host}[/bold][/cyan]")
+    if hostname:
+        console.print(f"  Hostname:   [bold]{hostname}[/bold]")
+    else:
+        console.print("  Hostname:   [dim](not set)[/dim]")
     console.print()
 
-    result = run_setup_script(host, script_path)
+    result = run_setup_script(host, script_path=script, hostname=hostname)
 
     if result is None:
-        console.print("[red]Failed to start machine setup script.[/red]")
+        console.print("[red]Failed to start machine setup.[/red]")
         raise typer.Exit(1)
 
     status = "success" if result.returncode == 0 else "failed"

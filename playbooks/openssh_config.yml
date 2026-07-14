@@ -26,9 +26,14 @@
         label: "{{ item.path }}"
 
 
+    - name: Ensure SSH keypair exists on remote
+      shell: test -f /home/dadisc01/.ssh/id_rsa || ssh-keygen -q -t rsa -N "" -f /home/dadisc01/.ssh/id_rsa >/dev/null 2>&1
+      changed_when: false
+
     - name: Collect keys for new machines
       fetch:
         src: /home/dadisc01/.ssh/id_rsa.pub
         dest: ../playfiles/openssh-config/newKeys/{{ inventory_hostname }}.pub
         flat: yes
+      ignore_errors: yes
 

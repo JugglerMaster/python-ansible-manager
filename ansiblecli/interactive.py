@@ -11,7 +11,7 @@ from rich.text import Text
 from ansiblecli import __version__, database
 from ansiblecli.config import get as get_config, set_key
 from ansiblecli.discover import discover_projects
-from ansiblecli.machinesetup import resolve_script_path, run_setup_script
+from ansiblecli.machinesetup import resolve_script_path, run_setup_script, run_machine_setup
 
 console = Console()
 
@@ -425,76 +425,104 @@ def machine_setup_menu():
     console.print(Panel(f"[bold]AnsibleCLI v{__version__}[/bold] — Machine Setup", border_style="cyan"))
     console.print()
 
-    script_path = resolve_script_path()
-    if script_path is None:
-        console.print("[yellow]No machine setup script configured.[/yellow]")
-        console.print()
+    # Check if playbooks exist (app-driven mode)
+    from ansiblecli.config import get as get_config
+    playbooks_dir = Path(get_config("playbooks_dir"))
+    required_playbooks = ["sudo.yml", "openssh_config.yml", "set_hostname.yml",
+                          "basics.yml", "unattendedInstall.yml", "reboot.yml"]
+    missing = [p for p in required_playbooks if not (playbooks_dir / p).exists()]
+
+    if missing:
+        console.print(f"[yellow]Missing playbooks: {', '.join(missing)}[/yellow]")
+        console.print("Machine setup requires all playbooks to be present.")
         action = questionary.select(
             "What would you like to do?",
             choices=[
-                questionary.Choice(title="   Configure script path in settings", value="config"),
                 questionary.Choice(title="←  Back to main menu", value="back"),
             ],
         ).ask()
-        if action == "config":
-            script_input = questionary.text(
-                "Path to machine setup script:",
-                default=str(Path(get_config("playbooks_dir")) / "newMachineSetup.sh"),
-            ).ask()
-            if script_input:
-                set_key("machine_setup_script", script_input)
-                console.print(f"[green]+[/green] Set machine_setup_script = {script_input}")
         return
 
-    script_path = script_path.resolve()
-    console.print(f"Script: [bold]{script_path}[/bold]")
-    if not script_path.exists():
-        console.print(f"[red]Script not found at {script_path}[/red]")
-        console.input("[dim]Press Enter to return...[/dim]")
-        return
-    console.print()
-
+    # Always prompt for target host
     host = questionary.text("Target host (hostname or IP):").ask()
     if not host:
         return
 
-    default_hostname = get_config("machine_setup_default_hostname")
-    hostname = questionary.text(
-        "Machine hostname (for set_hostname.yml):",
-        default=default_hostname or "",
-    ).ask()
-    if hostname:
-        set_key("machine_setup_default_hostname", hostname)
+    # Always prompt for hostname (no default)
+    hostname = questionary.text("Machine hostname (for set_hostname.yml): ").ask()
+    if not hostname:
+        console.print("[yellow]Hostname is required. Aborting.[/yellow]")
+        return
 
-    become_pass = get_config("machine_setup_become_pass")
+    # Check for sshpass (required for non-interactive ssh-copy-id)
+    import shutil
+    if not shutil.which("sshpass"):
+        console.print("[red]sshpass is not installed.[/red]")
+        console.print("  [dim]sshpass provides the SSH password to ssh-copy-id non-interactively.[/dim]")
+        console.print("  [dim]Install it with: sudo apt install sshpass[/dim]")
+        console.print()
+        action = questionary.select(
+            "What would you like to do?",
+            choices=[
+                questionary.Choice(title="←  Back to main menu", value="back"),
+            ],
+        ).ask()
+        return
+
+    # SSH password for ssh-copy-id (remote user's login password)
+    ssh_pass = questionary.password("SSH password for remote user (dadisc01): ").ask()
+    if not ssh_pass:
+        console.print("[yellow]SSH password is required for ssh-copy-id. Aborting.[/yellow]")
+        return
+
+    # Become pass: show saved value as option, always confirm choice
+    saved_pass = get_config("machine_setup_become_pass") or None
+    if saved_pass:
+        use_saved = questionary.confirm(
+            f"Use saved become password? (saved)", default=True
+        ).ask()
+        if use_saved is False:
+            console.print("[dim]Enter a new become password:[/dim]")
+            become_pass = questionary.password("Become password: ").ask()
+            save_new = questionary.confirm("Save this password for next time?", default=False).ask()
+            if save_new:
+                set_key("machine_setup_become_pass", become_pass)
+        else:
+            become_pass = saved_pass
+    else:
+        console.print("[dim]No saved become password.[/dim]")
+        become_pass = questionary.password("Become password: ").ask()
+        if become_pass:
+            save_pass = questionary.confirm("Save this password for next time?", default=False).ask()
+            if save_pass:
+                set_key("machine_setup_become_pass", become_pass)
+
     if not become_pass:
-        set_pass = questionary.confirm("Set a become password for this session?", default=False).ask()
-        if set_pass:
-            become_pass = questionary.password("Become password:").ask()
-            if become_pass:
-                save_pass = questionary.confirm("Save password to config?", default=False).ask()
-                if save_pass:
-                    set_key("machine_setup_become_pass", become_pass)
+        console.print("[yellow]No become password provided. Aborting.[/yellow]")
+        return
 
+    # Summary and confirm
     console.clear()
     console.print(Panel(f"[bold]AnsibleCLI v{__version__}[/bold] — Machine Setup", border_style="cyan"))
     console.print()
-    console.print(f"Host:     [bold]{host}[/bold]")
-    console.print(f"Script:   [bold]{script_path}[/bold]")
-    console.print(f"Password: {'[yellow]configured[/yellow]' if become_pass else '[dim]none[/dim]'}")
+    console.print(f"Host:       [bold]{host}[/bold]")
+    console.print(f"Hostname:   [bold]{hostname}[/bold]")
+    console.print(f"Password:   {'[green]configured[/green]' if become_pass else '[dim]none[/dim]'}")
     console.print()
 
     if not questionary.confirm("Run machine setup?", default=True).ask():
         return
 
+    # Run the playbook sequence directly (app-driven)
+    console.clear()
+    console.print(Panel(f"[bold]AnsibleCLI v{__version__}[/bold] — Machine Setup", border_style="cyan"))
     console.print()
     console.print(f"[cyan]Running machine setup on [bold]{host}[/bold]...[/cyan]")
-    console.print()
 
-    result = run_setup_script(host, hostname=hostname)
+    result = run_machine_setup(host, hostname, ssh_pass, become_pass)
 
     if result is None:
-        console.print("[red]Failed to start machine setup script.[/red]")
+        console.print("\n[red]Failed to start machine setup.[/red]")
         console.input("[dim]Press Enter to return...[/dim]")
         return
 
