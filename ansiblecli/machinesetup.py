@@ -92,7 +92,12 @@ def run_machine_setup(host, hostname, ssh_pass, become_pass):
     playbooks_dir = Path(get_config("playbooks_dir"))
     all_output_lines = []
 
-    for step in MACHINE_SETUP_SEQUENCE:
+    # Skip set_hostname step if no hostname provided
+    steps = MACHINE_SETUP_SEQUENCE
+    if not hostname:
+        steps = [s for s in steps if s.get("playbook") != "set_hostname.yml"]
+
+    for step in steps:
         # Handle SSH key setup step (runs sshsetup.sh before any playbooks)
         if step.get("type") == "ssh_key_setup":
             script_path = playbooks_dir / step["script"]
@@ -101,6 +106,18 @@ def run_machine_setup(host, hostname, ssh_pass, become_pass):
                 return None
             ensure_executable(script_path)
             print(f"\n[MACHINE_SETUP] Running {step['script']}...")
+            # Pre-populate known_hosts so the first SSH connection doesn't
+            # hang on an interactive host-key verification prompt. sshpass
+            # cannot handle that prompt, so this is required.
+            print(f"[MACHINE_SETUP] Scanning remote host key...")
+            scan_cmd = ["ssh-keyscan", "-T", "10", host]
+            scan_result = run_subprocess(scan_cmd)
+            if scan_result and scan_result.stdout:
+                known_hosts = Path.home() / ".ssh" / "known_hosts"
+                known_hosts.parent.mkdir(parents=True, exist_ok=True)
+                with open(known_hosts, "a") as f:
+                    f.write(scan_result.stdout)
+            print(f"[MACHINE_SETUP] Copying SSH key...")
             ssh_cmd = ["sshpass", "-p", ssh_pass, "ssh-copy-id", host]
             result = run_subprocess(ssh_cmd, cwd=str(script_path.parent))
             if result is None:
@@ -131,12 +148,12 @@ def run_machine_setup(host, hostname, ssh_pass, become_pass):
         for ev in ev_list:
             cmd.extend(["-e", ev])
 
-        # Add become pass using the actual password the user provided
-        if become_pass:
-            cmd.extend(["-e", f"ansible_become_pass={become_pass}"])
+        # Set ANSIBLE_BECOME_PASSWORD via env (passing ansible_become_pass via -e
+        # doesn't work reliably — Ansible ignores it and prompts interactively).
+        step_env = {"ANSIBLE_BECOME_PASSWORD": become_pass, "ANSIBLE_BECOME_PASS": become_pass} if become_pass else {}
 
-        print(f"\n[{'MACHINE_SETUP'}] Running {step['playbook']}...")
-        result = run_subprocess(cmd)
+        print(f"\n[MACHINE_SETUP] Running {step['playbook']}...")
+        result = run_subprocess(cmd, env=step_env)
 
         if result is None:
             return None

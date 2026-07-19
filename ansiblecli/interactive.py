@@ -386,6 +386,7 @@ def inventory_menu():
                     last,
                 )
             console.print(table)
+            console.input("[dim]Press Enter to continue...[/dim]")
 
         elif action == "add":
             hostname = questionary.text("Hostname:").ask()
@@ -418,6 +419,7 @@ def inventory_menu():
                 console.print("[bold]Inventory groups:[/bold]")
                 for g in groups:
                     console.print(f"  - {g}")
+            console.input("[dim]Press Enter to continue...[/dim]")
 
 
 def machine_setup_menu():
@@ -448,11 +450,11 @@ def machine_setup_menu():
     if not host:
         return
 
-    # Always prompt for hostname (no default)
-    hostname = questionary.text("Machine hostname (for set_hostname.yml): ").ask()
-    if not hostname:
-        console.print("[yellow]Hostname is required. Aborting.[/yellow]")
-        return
+    # Prompt for hostname (optional — leave blank to skip set_hostname.yml)
+    hostname = questionary.text(
+        "Machine hostname (leave blank to not set hostname):",
+    ).ask()
+    hostname = hostname.strip() if hostname else ""
 
     # Check for sshpass (required for non-interactive ssh-copy-id)
     import shutil
@@ -470,43 +472,41 @@ def machine_setup_menu():
         return
 
     # SSH password for ssh-copy-id (remote user's login password)
-    ssh_pass = questionary.password("SSH password for remote user (dadisc01): ").ask()
+    # Reuse the stored become password by default since sshsetup.sh uses it too.
+    saved_pass = get_config("machine_setup_become_pass") or None
+    if saved_pass:
+        use_saved = questionary.confirm(
+            "Use saved become password for ssh?", default=True
+        ).ask()
+        if use_saved is False:
+            console.print("[dim]Enter a new SSH password:[/dim]")
+            ssh_pass = questionary.password("SSH password: ").ask()
+            save_new = questionary.confirm("Save this password for next time?", default=False).ask()
+            if save_new:
+                set_key("machine_setup_become_pass", ssh_pass)
+        else:
+            ssh_pass = saved_pass
+    else:
+        console.print("[dim]No saved password. Enter your SSH password:[/dim]")
+        ssh_pass = questionary.password("SSH password: ").ask()
+        if ssh_pass:
+            save_pass = questionary.confirm("Save this password for next time?", default=False).ask()
+            if save_pass:
+                set_key("machine_setup_become_pass", ssh_pass)
+
     if not ssh_pass:
         console.print("[yellow]SSH password is required for ssh-copy-id. Aborting.[/yellow]")
         return
 
-    # Become pass: show saved value as option, always confirm choice
-    saved_pass = get_config("machine_setup_become_pass") or None
-    if saved_pass:
-        use_saved = questionary.confirm(
-            f"Use saved become password? (saved)", default=True
-        ).ask()
-        if use_saved is False:
-            console.print("[dim]Enter a new become password:[/dim]")
-            become_pass = questionary.password("Become password: ").ask()
-            save_new = questionary.confirm("Save this password for next time?", default=False).ask()
-            if save_new:
-                set_key("machine_setup_become_pass", become_pass)
-        else:
-            become_pass = saved_pass
-    else:
-        console.print("[dim]No saved become password.[/dim]")
-        become_pass = questionary.password("Become password: ").ask()
-        if become_pass:
-            save_pass = questionary.confirm("Save this password for next time?", default=False).ask()
-            if save_pass:
-                set_key("machine_setup_become_pass", become_pass)
-
-    if not become_pass:
-        console.print("[yellow]No become password provided. Aborting.[/yellow]")
-        return
+    # Become pass: same password is used for ansible become
+    become_pass = ssh_pass
 
     # Summary and confirm
     console.clear()
     console.print(Panel(f"[bold]AnsibleCLI v{__version__}[/bold] — Machine Setup", border_style="cyan"))
     console.print()
     console.print(f"Host:       [bold]{host}[/bold]")
-    console.print(f"Hostname:   [bold]{hostname}[/bold]")
+    console.print(f"Hostname:   [bold]{hostname}[/bold]" if hostname else "Hostname:   [dim]not set[/dim]")
     console.print(f"Password:   {'[green]configured[/green]' if become_pass else '[dim]none[/dim]'}")
     console.print()
 
@@ -531,10 +531,11 @@ def machine_setup_menu():
         console.print(f"[green bold]✓ Machine setup completed successfully for {host}.[/green bold]")
         add_inv = questionary.confirm("Add host to inventory?", default=True).ask()
         if add_inv:
+            inv_name = hostname if hostname else host
             group = questionary.text("Inventory group (default: all):", default="all").ask() or "all"
             from ansiblecli.inventory import add_host
-            add_host(host, address=host, group=group)
-            console.print(f"[green]+[/green] Added [bold]{host}[/bold] to inventory (group: {group}).")
+            add_host(inv_name, address=host, group=group)
+            console.print(f"[green]+[/green] Added [bold]{inv_name}[/bold] ({host}) to inventory (group: {group}).")
     else:
         console.print(f"[red bold]✗ Machine setup failed with exit code {result.returncode}.[/red bold]")
 
