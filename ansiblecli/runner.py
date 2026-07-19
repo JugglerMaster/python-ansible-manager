@@ -23,6 +23,7 @@ def run_subprocess(cmd, cwd=None, env=None):
         process = subprocess.Popen(
             cmd,
             cwd=cwd,
+            env=merged_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
