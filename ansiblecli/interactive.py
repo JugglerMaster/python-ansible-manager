@@ -250,16 +250,24 @@ def show_history(project_name=None):
 def show_run_result(result, playbook_path):
     if result is None:
         console.print("[red]Playbook execution failed to start.[/red]")
+        console.input("[dim]Press Enter to return...[/dim]")
         return
 
     status = "success" if result.returncode == 0 else "failed"
+    recap = parse_recap(result.stdout)
+
+    body_lines = []
+    body_lines.append(f"[bold]{'[OK]' if status == 'success' else '[FAIL]'} Playbook finished with exit code {result.returncode}[/bold]")
+    if recap:
+        body_lines.append(f"\n[bold]Play Recap:[/bold]\n{recap}")
 
     panel = Panel(
-        f"[bold]{'[OK]' if status == 'success' else '[FAIL]'} Playbook finished with exit code {result.returncode}[/bold]",
+        "\n".join(body_lines),
         title="Result",
         border_style="green" if status == "success" else "red",
     )
     console.print(panel)
+    console.input("[dim]Press Enter to return...[/dim]")
 
 
 def _do_run(project, playbook_path, settings):
