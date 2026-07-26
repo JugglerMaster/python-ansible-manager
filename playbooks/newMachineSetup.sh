@@ -59,7 +59,7 @@ echo "[4/8] Setting hostname to '$hostname' (rebooting)..."
 ansible-playbook set_hostname.yml -i "$machine," -e "target_hostname=$hostname" -e "ansible_become_pass=godisreal"
 
 echo "[5/8] Basics..."
-ansible-playbook basics.yml -i "$machine,"
+ansible-playbook basics.yml -i "$machine," -e "ansible_become_pass=godisreal"
 
 echo "[6/8] Unattended install..."
 ansible-playbook unattendedInstall.yml -i "$machine,"
