@@ -5,5 +5,12 @@ __pycache__/
 .idea/
 .vscode/
 *.pwd
-inventory/hosts.yml
 playfiles/
+inventory/hosts.yml
+
+# build + tooling caches
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.venv/.installed

@@ -1,6 +1,6 @@
 import shutil
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import questionary
@@ -11,6 +11,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ansiblecli import __version__, database
+from ansiblecli import config as config_module
 from ansiblecli.config import get as get_config
 from ansiblecli.config import set_key
 from ansiblecli.discover import discover_projects
@@ -286,6 +287,7 @@ def get_run_settings(project, last_config=None):
             "check_mode": check_mode,
             "tags": tags,
             "extra_vars": extra_vars,
+            "become_password": get_config("become_password") or None,
             "save": save,
         }
     except KeyboardInterrupt:
@@ -299,6 +301,7 @@ def show_history(project_name=None):
         return
 
     table = Table(title=f"Run History{' - ' + project_name if project_name else ''}")
+    table.add_column("ID", style="dim")
     table.add_column("Date", style="dim")
     table.add_column("Project")
     table.add_column("Host")
@@ -359,6 +362,7 @@ def show_history(project_name=None):
             recap = recap_str
 
         table.add_row(
+            str(r["id"]),
             str(started or ""),
             r["project"],
             r["host"] or "all",
@@ -368,6 +372,48 @@ def show_history(project_name=None):
         )
 
     console.print(table)
+
+
+def show_run_output(run_id, use_pager=True):
+    """Print the stored ansible output for one run. Returns False if unknown id."""
+    row = database.get_run_by_id(run_id)
+    if row is None:
+        return False
+
+    header = (f"[bold]{row['project']}[/bold] — exit {row['exit_code']} "
+              f"({row['status']}) — started {row['started_at']}")
+    body = row.get("output") or "[dim](no output captured for this run)[/dim]"
+
+    if use_pager:
+        with console.pager():
+            console.print(header)
+            console.print()
+            console.print(body)
+    else:
+        console.print(header)
+        console.print()
+        console.print(body)
+    return True
+
+
+def prompt_for_run_output(project_name=None):
+    """Offer to open one run's stored output from the history screen."""
+    choice = ask_text("Run ID to view output (blank to go back):")
+    if not choice or not choice.strip():
+        return False
+    run_id = choice.strip().lstrip("#")
+    if not run_id.isdigit():
+        console.print("[yellow]That isn't a run ID from the table.[/yellow]")
+        pause()
+        return False
+
+    if not show_run_output(int(run_id)):
+        console.print(f"[yellow]No run with ID {run_id}.[/yellow]")
+        pause()
+        return False
+
+    pause("Press Enter to return...")
+    return True
 
 
 def show_run_result(result, playbook_path):
@@ -393,6 +439,9 @@ def show_run_result(result, playbook_path):
     pause("Press Enter to return...")
 
 
+CANCELLED = "__cancelled__"
+
+
 def _do_run(project, playbook_path, settings):
     if settings.get("save"):
         database.save_last_config(
@@ -407,19 +456,32 @@ def _do_run(project, playbook_path, settings):
         database.update_host_last_used(settings["host"])
 
     from ansiblecli.inventory import write_inventory_file
-    from ansiblecli.runner import run_playbook
     write_inventory_file()
 
-    from datetime import datetime, timezone
     started_at = datetime.now(timezone.utc).isoformat()
 
-    result = run_playbook(
-        playbook_path,
-        host=settings["host"],
-        check_mode=settings["check_mode"],
-        tags=settings["tags"],
-        extra_vars=settings["extra_vars"],
-    )
+    from ansiblecli.runner import run_playbook
+    try:
+        result = run_playbook(
+            playbook_path,
+            host=settings["host"],
+            check_mode=settings["check_mode"],
+            tags=settings["tags"],
+            extra_vars=settings["extra_vars"],
+            become_password=settings.get("become_password"),
+            verbose=settings.get("verbose", 0),
+        )
+    except KeyboardInterrupt:
+        # Ctrl-C used to skip history entirely (the 'cancelled' status was dead
+        # code) — record it so you can see what you aborted.
+        database.add_run(
+            project["name"], playbook_path, settings["host"], settings["check_mode"],
+            settings["tags"], settings["extra_vars"], "cancelled", 130,
+            "Interrupted by user (Ctrl-C)",
+            started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return CANCELLED
 
     finished_at = datetime.now(timezone.utc).isoformat()
 
@@ -454,6 +516,10 @@ def _do_run(project, playbook_path, settings):
 
 def _run_and_loop(project, playbook_path, settings):
     result = _do_run(project, playbook_path, settings)
+    if result is CANCELLED:
+        console.print("[yellow]Run cancelled — nothing was changed by this tool.[/yellow]")
+        pause("Press Enter to return...")
+        return
     show_run_result(result, playbook_path)
 
 
@@ -670,6 +736,24 @@ def _settings_clear_history():
     pause()
 
 
+def _settings_set_become_password():
+    console.print("[dim]Stored in ~/.ansiblecli/config.json (owner-only, mode 600).[/dim]")
+    console.print("[dim]Leave blank to stop sending a become password.[/dim]")
+    password = ask_password("Become (sudo) password:")
+    if password is None:
+        console.print("[dim]Cancelled.[/dim]")
+        pause()
+        return
+    set_key("become_password", password)
+    config_module.lock_down_config_file()
+    if password:
+        console.print("[green]Become password saved — playbooks can now use 'become' "
+                      "without prompting.[/green]")
+    else:
+        console.print("[green]Cleared — playbooks will prompt for sudo again.[/green]")
+    pause()
+
+
 def _settings_clear_last_config():
     if ask_confirm("Clear saved run settings for all projects?"):
         database.clear_last_config()
@@ -683,10 +767,12 @@ def settings_menu():
     items = [
         ("   Clear run history", "clear_history"),
         ("   Clear saved run settings", "clear_config"),
+        ("   Set become (sudo) password", "become_pass"),
     ]
     handlers = {
         "clear_history": _settings_clear_history,
         "clear_config": _settings_clear_last_config,
+        "become_pass": _settings_set_become_password,
     }
     run_menu("Settings", "Settings:", items, dispatch_from(handlers))
 
@@ -720,9 +806,11 @@ def interactive_loop():
 
                 # These actions don't need a specific playbook chosen first.
                 if proj_action == "history":
-                    render_screen(f"History — {project['name']}")
-                    show_history(project["name"])
-                    pause("Press Enter to return...")
+                    while True:
+                        render_screen(f"History — {project['name']}")
+                        show_history(project["name"])
+                        if not prompt_for_run_output():
+                            break
                     continue
 
                 playbook_path = pick_playbook(project)
@@ -768,12 +856,13 @@ def interactive_loop():
             selected = ask_select("Show history for:", proj_choices)
             if selected is None:
                 continue
-            render_screen("History" if selected == "All projects" else f"History — {selected}")
-            if selected == "All projects":
-                show_history()
-            else:
-                show_history(selected)
-            pause("Press Enter to return...")
+            while True:
+                render_screen(
+                    "History" if selected == "All projects" else f"History — {selected}")
+                show_history(None if selected == "All projects" else selected)
+                # Offer the stored output — it was captured but never viewable.
+                if not prompt_for_run_output():
+                    break
 
         elif action == "settings":
             settings_menu()

@@ -85,7 +85,8 @@ def test_run_all_hosts_flag_omits_limit(projects, monkeypatch):
 
     captured = {}
 
-    def fake_run_playbook(path, host=None, check_mode=False, tags=None, extra_vars=None):
+    def fake_run_playbook(path, host=None, check_mode=False, tags=None, extra_vars=None,
+                          become_password=None, verbose=0):
         captured["host"] = host
         from ansiblecli.runner import SubprocessResult
         return SubprocessResult(returncode=0, stdout="")
@@ -123,8 +124,10 @@ def test_run_uses_last_config_and_records_history(projects, monkeypatch):
 
     captured = {}
 
-    def fake_run_playbook(path, host=None, check_mode=False, tags=None, extra_vars=None):
-        captured.update(path=path, host=host)
+    def fake_run_playbook(path, host=None, check_mode=False, tags=None, extra_vars=None,
+                          become_password=None, verbose=0):
+        captured.update(path=path, host=host, verbose=verbose,
+                        become_password=become_password)
         from ansiblecli.runner import SubprocessResult
         return SubprocessResult(returncode=0, stdout="PLAY RECAP\nweb1 : ok=1 failed=0\n")
 
