@@ -1,23 +1,27 @@
+import sys
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
-from rich.text import Text
 
 from ansiblecli import __version__, database
+from ansiblecli.config import APP_DIR, load_config, save_config, set_key
 from ansiblecli.config import get as get_config
-from ansiblecli.config import APP_DIR, load_config, set_key
 from ansiblecli.discover import discover_projects, get_project
 from ansiblecli.inventory import (
     add_host as inv_add_host,
+)
+from ansiblecli.inventory import (
     export_inventory,
     list_groups,
     list_hosts,
-    remove_host as inv_remove_host,
     write_inventory_file,
 )
-from ansiblecli.machinesetup import resolve_script_path, run_setup_script
+from ansiblecli.inventory import (
+    remove_host as inv_remove_host,
+)
+from ansiblecli.machinesetup import run_machine_setup, run_setup_script
 
 app = typer.Typer(
     name="ansiblecli",
@@ -27,9 +31,25 @@ app = typer.Typer(
 console = Console()
 
 
+def _version_callback(value: bool):
+    if value:
+        console.print(f"ansiblecli {__version__}")
+        raise typer.Exit()
+
+
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context):
+def main(
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False, "--version", "-V", callback=_version_callback,
+        is_eager=True, help="Show the ansiblecli version and exit.",
+    ),
+):
     if ctx.invoked_subcommand is None:
+        # Interactive menus need a real terminal — don't hang when piped.
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            console.print(ctx.get_help())
+            raise typer.Exit(1)
         from ansiblecli.interactive import interactive_loop
         database.init_db()
         interactive_loop()
@@ -48,6 +68,15 @@ def init():
     playbooks_dir.mkdir(parents=True, exist_ok=True)
     playfiles_dir.mkdir(parents=True, exist_ok=True)
     inventory_dir.mkdir(parents=True, exist_ok=True)
+
+    # Persist resolved paths: otherwise every future run re-derives them from
+    # the current working directory and finds nothing outside the repo root.
+    save_config({
+        **load_config(),
+        "playbooks_dir": str(playbooks_dir.resolve()),
+        "playfiles_dir": str(playfiles_dir.resolve()),
+        "inventory_dir": str(inventory_dir.resolve()),
+    })
 
     write_inventory_file()
 
@@ -99,6 +128,7 @@ def list():
 def run(
     project: str = typer.Argument(None, help="Project name from playbooks/"),
     host: str = typer.Option(None, "--host", "-l", help="Target host or hostname"),
+    all_hosts: bool = typer.Option(False, "--all-hosts", "-A", help="Run against every inventory host"),
     check: bool = typer.Option(False, "--check", help="Dry-run mode"),
     tags: str = typer.Option(None, "--tags", "-t", help="Comma-separated tags"),
     extra_vars: str = typer.Option(None, "--extra-vars", "-e", help="Extra vars (key=val,key=val)"),
@@ -122,19 +152,25 @@ def run(
 
     playbook_path = proj["playbooks"][0]
     if len(proj["playbooks"]) > 1 and not host:
-        console.print(f"[yellow]Multiple playbooks found. Use the interactive mode to choose.[/yellow]")
+        console.print("[yellow]Multiple playbooks found. Use the interactive mode to choose.[/yellow]")
         playbook_path = proj["playbooks"][0]
 
-    last = database.get_last_config(project)
+    last = database.get_last_config(project) or {}
 
-    resolved_host = host or (last.get("host") if last else None)
-    resolved_check = check or (bool(last.get("check_mode")) if last and not check else False)
-    resolved_tags = tags or (last.get("tags") if last else None)
-    resolved_vars = extra_vars or (last.get("extra_vars") if last else None)
+    # Flags win over saved config; missing flags fall back to the saved config.
+    # --all-hosts omits `-l` entirely, matching "All hosts" in the picker.
+    if all_hosts:
+        resolved_host = None
+    else:
+        resolved_host = host or last.get("host")
+        if not resolved_host:
+            console.print("[yellow]No host specified. Use --host, --all-hosts, "
+                          "or run interactive mode.[/yellow]")
+            raise typer.Exit(1)
 
-    if not resolved_host:
-        console.print("[yellow]No host specified. Use --host or run interactive mode.[/yellow]")
-        raise typer.Exit(1)
+    resolved_check = check or bool(last.get("check_mode"))
+    resolved_tags = tags or last.get("tags")
+    resolved_vars = extra_vars or last.get("extra_vars")
 
     write_inventory_file()
 
@@ -188,7 +224,8 @@ def history(
 def machinesetup(
     host: str = typer.Argument(..., help="Hostname or IP of the new machine"),
     hostname: str = typer.Option(None, "--hostname", "-n", help="Machine hostname (for set_hostname.yml)"),
-    script: str = typer.Option(None, "--script", "-s", help="Override the configured setup script"),
+    ssh_pass: str = typer.Option(None, "--ssh-pass", "-p", help="SSH password (defaults to the stored one)"),
+    script: str = typer.Option(None, "--script", "-s", help="Run a shell script instead of the built-in sequence"),
     add_to_inventory: bool = typer.Option(True, "--add-to-inventory/--no-add", help="Add host to inventory on success"),
 ):
     """Run machine setup against a new host."""
@@ -196,7 +233,6 @@ def machinesetup(
 
     # If hostname not provided via flag, try saved default
     if not hostname:
-        from ansiblecli.config import get as get_config
         hostname = get_config("machine_setup_default_hostname") or None
 
     console.print(f"[cyan]Running machine setup on [bold]{host}[/bold][/cyan]")
@@ -206,20 +242,32 @@ def machinesetup(
         console.print("  Hostname:   [dim](not set)[/dim]")
     console.print()
 
-    result = run_setup_script(host, script_path=script, hostname=hostname)
+    if script:
+        result = run_setup_script(host, script_path=script, hostname=hostname)
+    else:
+        password = ssh_pass or get_config("machine_setup_become_pass") or None
+        if not password and sys.stdin.isatty():
+            import questionary
+            password = questionary.password("SSH password:").ask()
+        if not password:
+            console.print("[red]Error: an SSH password is required (--ssh-pass, "
+                          "config machine_setup_become_pass, or interactive prompt).[/red]")
+            raise typer.Exit(1)
+        result = run_machine_setup(host, hostname, password, password)
 
     if result is None:
         console.print("[red]Failed to start machine setup.[/red]")
         raise typer.Exit(1)
 
-    status = "success" if result.returncode == 0 else "failed"
-    console.print()
-    if status == "success":
+    if result.returncode == 0:
+        console.print()
         console.print(f"[green bold]Machine setup completed successfully for {host}.[/green bold]")
         if add_to_inventory:
-            console.print(f"[green]+[/green] Host [bold]{host}[/bold] already in inventory or run [bold]ansiblecli inventory add {host}[/bold]")
+            inv_add_host(hostname or host, address=host)
+            console.print(f"[green]+[/green] Added [bold]{hostname or host}[/bold] to inventory.")
     else:
         console.print(f"[red bold]Machine setup failed with exit code {result.returncode}.[/red bold]")
+    raise typer.Exit(0 if result.returncode == 0 else 1)
 
 
 @app.command()

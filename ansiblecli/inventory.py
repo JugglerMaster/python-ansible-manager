@@ -58,32 +58,3 @@ def remove_host(hostname):
 
 def list_groups():
     return database.get_inventory_groups()
-
-
-def create_group(name):
-    if name == "all":
-        return
-    existing = database.get_known_hosts()
-    database.add_known_host(f"__group_anchor_{name}__", address=None, inventory_group=name, os_type=None)
-    for h in existing:
-        if h["inventory_group"] == name:
-            return
-    write_inventory_file()
-
-
-def add_host_to_group(hostname, group):
-    hosts = database.get_known_hosts()
-    for h in hosts:
-        if h["hostname"] == hostname:
-            database.add_known_host(hostname, h.get("address"), group, h.get("os_type"))
-            write_inventory_file()
-            return
-
-
-def remove_host_from_group(hostname):
-    hosts = database.get_known_hosts()
-    for h in hosts:
-        if h["hostname"] == hostname and h["inventory_group"] != "all":
-            database.add_known_host(hostname, h.get("address"), "all", h.get("os_type"))
-            write_inventory_file()
-            return

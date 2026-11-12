@@ -1,7 +1,8 @@
 [project]
 name = "ansiblecli"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Interactive CLI for managing and running Ansible playbooks"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "typer>=0.12.0",
@@ -10,8 +11,19 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6.0",
+    "build>=1.2",
+]
+
 [project.scripts]
 ansiblecli = "ansiblecli.cli:app"
+
+# Single source of truth for the version: ansiblecli/__init__.py
+[tool.setuptools.dynamic]
+version = {attr = "ansiblecli.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["ansiblecli*"]
@@ -19,3 +31,30 @@ include = ["ansiblecli*"]
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes (unused imports/vars)
+    "I",        # import sorting
+    "UP",       # pyupgrade
+    "B",        # bugbear (likely bugs)
+    "SIM",      # simplify
+    "BLE",      # blind except
+]
+ignore = [
+    "B008",     # typer needs function-call defaults for Options
+    "SIM108",   # explicit ternaries are clearer in the menus
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004", "S105", "S106"]

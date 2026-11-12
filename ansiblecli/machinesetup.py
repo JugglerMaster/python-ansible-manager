@@ -1,9 +1,8 @@
-import os
-import signal
 import stat
+import sys
 from pathlib import Path
 
-from ansiblecli.config import get as get_config, set_key
+from ansiblecli.config import get as get_config
 from ansiblecli.runner import SubprocessResult, run_subprocess
 
 
@@ -102,24 +101,34 @@ def run_machine_setup(host, hostname, ssh_pass, become_pass):
         if step.get("type") == "ssh_key_setup":
             script_path = playbooks_dir / step["script"]
             if not script_path.exists():
-                print(f"Error: {step['script']} not found in playbooks/", file=__import__('sys').stderr)
+                print(f"Error: {step['script']} not found in playbooks/", file=sys.stderr)
                 return None
             ensure_executable(script_path)
             print(f"\n[MACHINE_SETUP] Running {step['script']}...")
             # Pre-populate known_hosts so the first SSH connection doesn't
             # hang on an interactive host-key verification prompt. sshpass
             # cannot handle that prompt, so this is required.
-            print(f"[MACHINE_SETUP] Scanning remote host key...")
-            scan_cmd = ["ssh-keyscan", "-T", "10", host]
-            scan_result = run_subprocess(scan_cmd)
+            print("[MACHINE_SETUP] Scanning remote host key...")
+            scan_result = run_subprocess(["ssh-keyscan", "-T", "10", host])
             if scan_result and scan_result.stdout:
                 known_hosts = Path.home() / ".ssh" / "known_hosts"
                 known_hosts.parent.mkdir(parents=True, exist_ok=True)
-                with open(known_hosts, "a") as f:
-                    f.write(scan_result.stdout)
-            print(f"[MACHINE_SETUP] Copying SSH key...")
-            ssh_cmd = ["sshpass", "-p", ssh_pass, "ssh-copy-id", host]
-            result = run_subprocess(ssh_cmd, cwd=str(script_path.parent))
+                existing = set()
+                if known_hosts.exists():
+                    existing = {ln for ln in known_hosts.read_text().splitlines() if ln.strip()}
+                new_lines = [
+                    ln for ln in scan_result.stdout.splitlines()
+                    if ln.strip() and not ln.startswith("#") and ln not in existing
+                ]
+                if new_lines:
+                    with open(known_hosts, "a") as f:
+                        f.write("\n".join(new_lines) + "\n")
+            print("[MACHINE_SETUP] Copying SSH key...")
+            # SSHPASS env var instead of -p so the password never shows up in
+            # the process list.
+            ssh_cmd = ["sshpass", "-e", "ssh-copy-id", host]
+            result = run_subprocess(ssh_cmd, cwd=str(script_path.parent),
+                                    env={"SSHPASS": ssh_pass})
             if result is None:
                 return None
             all_output_lines.append(result.stdout)
@@ -161,7 +170,7 @@ def run_machine_setup(host, hostname, ssh_pass, become_pass):
         all_output_lines.append(result.stdout)
 
         if result.returncode != 0:
-            print(f"\n[{'MACHINE_SETUP'}] {step['playbook']} failed with exit code {result.returncode}")
+            print(f"\n[MACHINE_SETUP] {step['playbook']} failed with exit code {result.returncode}")
             return SubprocessResult(returncode=result.returncode, stdout="\n".join(all_output_lines))
 
     return SubprocessResult(returncode=0, stdout="\n".join(all_output_lines))

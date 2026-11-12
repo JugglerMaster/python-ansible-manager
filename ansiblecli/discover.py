@@ -14,8 +14,8 @@ def _parse_project_description(playbook_path):
             desc = data[0].get("description") or data[0].get("name")
             if desc:
                 return str(desc)
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001 - playbook YAML can be arbitrarily broken
+        return None
     return None
 
 
