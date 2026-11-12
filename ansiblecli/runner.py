@@ -28,7 +28,8 @@ def run_subprocess(cmd, cwd=None, env=None):
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            preexec_fn=os.setsid,
+            # Sets a new process group so Ctrl-C reaches the whole ansible tree.
+            preexec_fn=os.setsid,  # noqa: PLW1509
         )
         output_lines = []
         try:
@@ -45,7 +46,7 @@ def run_subprocess(cmd, cwd=None, env=None):
     except FileNotFoundError:
         print(f"Error: command not found — {cmd[0]}", file=sys.stderr)
         return None
-    except Exception as e:
+    except OSError as e:
         print(f"Error running command: {e}", file=sys.stderr)
         return None
 

@@ -21,6 +21,11 @@ ansiblecli/package/          # Python package
 playbooks/                   # Auto-discovered: subdirs or standalone .yml files
 playfiles/<project>/         # Supporting files (templates, scripts, etc.)
 inventory/hosts.yml          # Auto-generated, passed as -i
+tests/                       # pytest suite (isolated fixtures in tests/conftest.py)
+scripts/bump_version.py      # Version bump helper (only place versions change)
+Makefile                     # install / test / lint / check / bump / release
+acli.sh                      # Dev launcher (NOT ansiblecli.sh — avoids tab-completion clash)
+.github/workflows/           # CI (ruff+pytest) + release (build/publish on v* tags)
 ```
 
 ## Conventions
@@ -87,14 +92,46 @@ ansiblecli → Main menu (Run / Inventory / Machine Setup / History / Settings /
 - `resolve_script_path(override)` handles: explicit override → configured value → auto-discover `playbooks/newMachineSetup.sh`
 - `machine_setup_menu()` in interactive menu: config check → host prompt → password prompt → live execution → add-to-inventory prompt
 - No run_history tracking for machine setup (per user preference)
+- Menus clear + re-render through `render_screen()` each loop; `Esc`/Ctrl-C and
+  the `← Back` entry always return to the previous menu
+- `ansiblecli` with no TTY prints help instead of hanging (see `cli.main`)
 
 ## Versioning
 
-Increment `__version__` in `ansiblecli/__init__.py` after major changes or new features.
+`ansiblecli/__init__.py` (`__version__`) is the **single source of truth** —
+`pyproject.toml` reads it via `[tool.setuptools.dynamic]`, so never set a
+version in `pyproject.toml`. Use `make bump` (`PART=patch|minor|major`) after
+major changes or new features; bump minor/major rather than patch when adding
+functionality.
+
+## Build / test / release workflow
+
+```bash
+make check      # lint + tests — ALWAYS run before finishing work
+make test       # pytest only
+make lint       # ruff only
+make run        # launch the interactive wizard
+make bump       # bump __version__ (single source of truth)
+make release    # check + bump + commit + tag + push
+```
+
+- Tests must be added/updated for every behaviour change; they live in `tests/`.
+- `tests/conftest.py` isolates `APP_DIR`, `config.json`, `DB_FILE` and the
+  playbooks/inventory dirs into `tmp_path` — never write to the real
+  `~/.ansiblecli` in tests, and never shell out to real `ansible-playbook`.
+- Every interactive menu is driven through `render_screen()` / `run_menu()` in
+  `interactive.py` so all menus look identical. New menus should use those
+  helpers (and `ask_select` / `ask_text` / `ask_confirm` / `ask_password`, which
+  return `None` on Esc/Ctrl-C) instead of calling questionary directly.
+- `ProjectPicker` keeps all behaviour in methods (`move`, `page_next`,
+  `cycle_sort`, `type_char`, `select`, ...) so tests exercise them without a
+  terminal; `build_app(input=..., output=...)` allows driving it with a pipe.
 
 ## Launcher
 
-`./ansiblecli.sh` auto-creates `.venv`, `pip install -e .`, delegates to entry point.
+`./acli.sh` auto-creates `.venv`, `pip install -e .`, delegates to the entry
+point. Renamed from `ansiblecli.sh` so it doesn't collide with the `ansiblecli/`
+package directory on tab-completion.
 
 ## Machine Setup Feature
 

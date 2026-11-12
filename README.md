@@ -6,7 +6,11 @@ Interactive CLI tool for managing and running Ansible playbooks.
 
 ```bash
 # First run: creates .venv, installs, launches wizard
-./ansiblecli.sh
+./acli.sh
+
+# Or use make (recommended for development)
+make install
+make run
 
 # Initialize config and database
 ansiblecli init
@@ -20,14 +24,46 @@ ansiblecli
 
 **Requirement:** `ansible-playbook` must be on your PATH — install Ansible via `apt`/`brew`/`pip` or inside the same venv.
 
+> The launcher is `acli.sh` (not `ansiblecli.sh`) so it doesn't collide with the
+> `ansiblecli/` package directory on tab-completion.
+
 ## Features
 
 - **Keyboard-driven project picker** — pagination, live search (`/`), sort modes (`s`), hotkeys for run/settings/history/view
 - **Live streaming output** — ansible-playbook output streams in real time while still being captured for history
 - **Run history** — per-project or global, with host-level recap (ok/failed/unreachable counts from PLAY RECAP)
 - **Playbook viewer** — full-screen YAML via `less` with syntax highlighting, line numbers, scroll, and search
-- **Settings menu** — configurable run options (host, check mode, tags, extra vars), clear run history
+- **Settings menu** — clear run history, clear saved per-project run settings
 - **Inventory management** — CRUD hosts, group listing, auto-generated YAML inventory
+
+## Development
+
+```bash
+make help          # list all targets
+make install       # .venv + editable install + dev deps (pytest, ruff, build)
+make test          # run the test suite
+make lint          # ruff check
+make fmt           # auto-fix import order / simple lint issues
+make check         # lint + test — run before every commit
+make bump          # 1.2.0 -> 1.2.1  (PART=minor|major to override)
+make release       # check + bump + commit + tag + push (CI publishes the release)
+```
+
+- Tests live in `tests/` and run fully isolated: every test gets a throwaway
+  `~/.ansiblecli`, `config.json`, SQLite DB and `playbooks/` tree, so your real
+  history and inventory are never touched.
+- No `ansible-playbook` binary is needed for tests — subprocesses are faked.
+
+### Versioning & releases
+
+The version lives in **one** place: `ansiblecli/__init__.py` (`__version__`).
+`pyproject.toml` reads it dynamically, so `make bump` is the only step needed.
+
+`make release` bumps, commits, tags `vX.Y.Z` and pushes; the GitHub Actions
+`Release` workflow then builds the sdist/wheel and publishes a GitHub release.
+
+CI (`.github/workflows/ci.yml`) runs `ruff` + `pytest` on Python 3.10–3.12 for
+every push and PR.
 
 ## Directory Structure
 
@@ -44,12 +80,16 @@ playfiles/          # Supporting files for playbooks (NOT managed by this tool)
 
 inventory/          # Managed inventory — auto-generated, do not edit
   hosts.yml         #   Passed to ansible-playbook with -i automatically
+
+tests/              # pytest suite (isolated fixtures in tests/conftest.py)
+scripts/            # bump_version.py
 ```
 
 ## Usage
 
 ```bash
 ansiblecli                    # Interactive wizard
+ansiblecli --version          # Print version
 ansiblecli list               # List discovered projects
 ansiblecli run desktop-setup  # Run with last config or prompts
 ansiblecli history            # View run history
@@ -57,6 +97,19 @@ ansiblecli config             # Show configuration
 ansiblecli inventory list     # List hosts
 ansiblecli inventory add <hostname> --address <ip> --group <group>
 ```
+
+Interactive picker hotkeys:
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` | Move selection |
+| `←` / `→` (or PgUp/PgDn) | Previous / next page |
+| `Home` / `End` | First / last project |
+| `s` | Cycle sort (name → last run → modified) |
+| `/` | Search (type to filter, `Enter` accepts and runs, `Esc` clears) |
+| `Enter` | Run highlighted project |
+| `c` / `h` / `v` | Settings / history / view playbook |
+| `Esc` (or `Ctrl-C`) | Back |
 
 ## License
 

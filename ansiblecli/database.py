@@ -1,6 +1,6 @@
+import contextlib
 import sqlite3
 from datetime import datetime, timezone
-from pathlib import Path
 
 from ansiblecli.config import APP_DIR
 
@@ -55,6 +55,12 @@ def init_db():
     migrate_schema()
 
 
+_RUN_HISTORY_COLUMNS = (
+    "project, playbook_path, host, check_mode, tags, extra_vars, status, "
+    "exit_code, output, started_at, finished_at, recap"
+)
+
+
 def add_run(project, playbook_path, host, check_mode, tags, extra_vars, status, exit_code, output,
             started_at=None, finished_at=None, recap=None):
     if started_at is None:
@@ -63,9 +69,8 @@ def add_run(project, playbook_path, host, check_mode, tags, extra_vars, status, 
         finished_at = started_at
     conn = get_connection()
     conn.execute(
-        """INSERT INTO run_history
-           (project, playbook_path, host, check_mode, tags, extra_vars, status, exit_code, output, started_at, finished_at, recap)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        f"""INSERT INTO run_history ({_RUN_HISTORY_COLUMNS})
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (project, playbook_path, host, int(check_mode), tags or None, extra_vars or None,
          status, exit_code, output, started_at, finished_at, recap),
     )
@@ -73,14 +78,18 @@ def add_run(project, playbook_path, host, check_mode, tags, extra_vars, status, 
     conn.close()
 
 
+_LEGACY_ALL_HOSTS = ("All hosts", "all", "*")
+
+
 def migrate_schema():
     conn = get_connection()
-    conn.execute("UPDATE run_history SET host = NULL WHERE host = 'All hosts' OR host = 'all' OR host = '*'")
-    conn.execute("UPDATE last_config SET host = NULL WHERE host = 'All hosts' OR host = 'all' OR host = '*'")
-    try:
+    conn.execute(
+        "UPDATE run_history SET host = NULL WHERE host IN (?, ?, ?)", _LEGACY_ALL_HOSTS)
+    conn.execute(
+        "UPDATE last_config SET host = NULL WHERE host IN (?, ?, ?)", _LEGACY_ALL_HOSTS)
+    # 'recap' was added after the first release — ignore if already present.
+    with contextlib.suppress(sqlite3.OperationalError):
         conn.execute("ALTER TABLE run_history ADD COLUMN recap TEXT")
-    except sqlite3.OperationalError:
-        pass
     conn.commit()
     conn.close()
 
@@ -105,14 +114,17 @@ def get_history_stats(project=None):
     conn = get_connection()
     if project:
         row = conn.execute(
-            "SELECT COUNT(*) as total, SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) as success, "
-            "SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed FROM run_history WHERE project = ?",
+            "SELECT COUNT(*) as total, "
+            "COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END), 0) as success, "
+            "COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) as failed "
+            "FROM run_history WHERE project = ?",
             (project,),
         ).fetchone()
     else:
         row = conn.execute(
-            "SELECT COUNT(*) as total, SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) as success, "
-            "SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed FROM run_history",
+            "SELECT COUNT(*) as total, "
+            "COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END), 0) as success, "
+            "COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) as failed FROM run_history",
         ).fetchone()
     conn.close()
     return dict(row) if row else {"total": 0, "success": 0, "failed": 0}
@@ -173,6 +185,25 @@ def update_host_last_used(hostname):
         "UPDATE known_hosts SET last_used = ? WHERE hostname = ?",
         (datetime.now(timezone.utc).isoformat(), hostname),
     )
+    conn.commit()
+    conn.close()
+
+
+def clear_run_history():
+    """Delete every row in run_history."""
+    conn = get_connection()
+    conn.execute("DELETE FROM run_history")
+    conn.commit()
+    conn.close()
+
+
+def clear_last_config(project=None):
+    """Delete saved run settings — one project, or all of them."""
+    conn = get_connection()
+    if project:
+        conn.execute("DELETE FROM last_config WHERE project = ?", (project,))
+    else:
+        conn.execute("DELETE FROM last_config")
     conn.commit()
     conn.close()
 
