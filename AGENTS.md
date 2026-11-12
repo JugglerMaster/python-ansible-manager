@@ -84,7 +84,20 @@ ansiblecli → Main menu (Run / Inventory / Machine Setup / History / Settings /
 - `add_run()` accepts optional `started_at`, `finished_at`, `recap` params
 - Picker actions return `(project_dict, action_string)` — actions: `run`, `settings`, `history`, `view`
 - `host=None` means run against all hosts (no `-l` flag); stored as `"__all__"` sentinel in prompts
-- Settings menu items: Clear run history
+- Settings menu items: Clear run history, Clear saved run settings, Set become (sudo) password
+- **Become (sudo) password**: config key `become_password`; delivered via a 0600 temp
+  JSON file + `--extra-vars @file` (`runner.become_password_args`). Never put it in argv
+  (`ps`) — env vars alone are ignored by ansible, so `become` tasks would hang.
+  `run_machine_setup()` uses the same helper so both paths stay identical.
+- **Cancelled runs**: Ctrl-C is caught in `_do_run()` and in `cli.run`, recorded with
+  `status="cancelled"`, `exit_code=130` (previously Ctrl-C lost the history entry).
+- **Stored output**: every run's stdout is kept in `run_history.output`; re-open it with
+  `ansiblecli show <id>` or from the history screen (`show_run_output`,
+  `prompt_for_run_output`). The history table shows the `ID` column.
+- `ansiblecli doctor` checks `ansible-playbook`/`sshpass`/`ssh-keyscan`, config paths,
+  inventory file, project count, DB stats and config file permissions
+- `config.json` may hold passwords — `save_config()`/`lock_down_config_file()` force mode
+  0600; `is_config_exposed()` drives the doctor warning
 - `run_subprocess()` in `runner.py` is the shared streaming subprocess utility used by both `run_playbook()` and `run_setup_script()`
 - `run_subprocess()` uses `preexec_fn=os.setsid` so `KeyboardInterrupt` propagates to the child process tree
 - `machinesetup.run_setup_script(host)` passes host as `$1` and sets `ANSIBLE_TARGET_HOST` and `ANSIBLE_BECOME_PASS` env vars

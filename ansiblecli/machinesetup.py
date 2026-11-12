@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 from ansiblecli.config import get as get_config
-from ansiblecli.runner import SubprocessResult, run_subprocess
+from ansiblecli.runner import SubprocessResult, become_password_args, run_subprocess
 
 
 def resolve_script_path(override=None):
@@ -139,30 +139,28 @@ def run_machine_setup(host, hostname, ssh_pass, become_pass):
 
         playbook_path = playbooks_dir / step["playbook"]
         if not playbook_path.exists():
-            print(f"Error: {step['playbook']} not found in playbooks/", file=__import__('sys').stderr)
+            print(f"Error: {step['playbook']} not found in playbooks/", file=sys.stderr)
             return None
 
-        # Use inline inventory (host as a string) so we can target a host
-        # that isn't yet in the inventory file. Trailing comma tells Ansible
-        # it's a host list, not a file path.
-        cmd = ["ansible-playbook", str(playbook_path), "-i", f"{host},"]
-
-        # Build extra vars
+        # Give ansible the sudo password non-interactively through a 0600
+        # extra-vars file (same helper normal playbook runs use).
         ev_list = []
         for var_name in step["extra_vars"]:
             if var_name == "target_hostname":
                 ev_list.append(f"target_hostname={hostname}")
             elif var_name == "reboot_timeout":
                 ev_list.append("reboot_timeout=360")
-        for ev in ev_list:
-            cmd.extend(["-e", ev])
 
-        # Set ANSIBLE_BECOME_PASSWORD via env (passing ansible_become_pass via -e
-        # doesn't work reliably — Ansible ignores it and prompts interactively).
-        step_env = {"ANSIBLE_BECOME_PASSWORD": become_pass, "ANSIBLE_BECOME_PASS": become_pass} if become_pass else {}
+        with become_password_args(become_pass) as become_args:
+            # Inline inventory (trailing comma = host list) so we can target a
+            # host that isn't in the inventory file yet.
+            cmd = ["ansible-playbook", str(playbook_path), "-i", f"{host},"]
+            for ev in ev_list:
+                cmd.extend(["-e", ev])
+            cmd.extend(become_args)
 
-        print(f"\n[MACHINE_SETUP] Running {step['playbook']}...")
-        result = run_subprocess(cmd, env=step_env)
+            print(f"\n[MACHINE_SETUP] Running {step['playbook']}...")
+            result = run_subprocess(cmd)
 
         if result is None:
             return None

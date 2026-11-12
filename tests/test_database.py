@@ -37,16 +37,18 @@ def test_history_stats_counts_by_status():
     database.add_run("alpha", "p.yml", "h", False, None, None, "success", 0, "")
     database.add_run("alpha", "p.yml", "h", False, None, None, "failed", 1, "")
     database.add_run("alpha", "p.yml", "h", False, None, None, "failed", 1, "")
+    database.add_run("alpha", "p.yml", "h", False, None, None, "cancelled", 130, "")
     stats = database.get_history_stats("alpha")
-    assert stats["total"] == 3
+    assert stats["total"] == 4
     assert stats["success"] == 1
     assert stats["failed"] == 2
+    assert stats["cancelled"] == 1
 
 
 def test_history_stats_never_returns_none_for_empty_set():
     # SUM() over zero rows yields NULL, which would break "3 ok, None failed".
     stats = database.get_history_stats("nope")
-    assert stats == {"total": 0, "success": 0, "failed": 0}
+    assert stats == {"total": 0, "success": 0, "failed": 0, "cancelled": 0}
     assert all(isinstance(v, int) for v in stats.values())
 
 

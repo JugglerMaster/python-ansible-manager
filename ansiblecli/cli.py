@@ -1,4 +1,6 @@
+import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import typer
@@ -6,8 +8,18 @@ from rich.console import Console
 from rich.table import Table
 
 from ansiblecli import __version__, database
-from ansiblecli.config import APP_DIR, load_config, save_config, set_key
-from ansiblecli.config import get as get_config
+from ansiblecli.config import (
+    APP_DIR,
+    CONFIG_FILE,
+    is_config_exposed,
+    load_config,
+    save_config,
+    set_key,
+)
+from ansiblecli.config import (
+    get as get_config,
+)
+from ansiblecli.database import DB_FILE
 from ansiblecli.discover import discover_projects, get_project
 from ansiblecli.inventory import (
     add_host as inv_add_host,
@@ -132,6 +144,11 @@ def run(
     check: bool = typer.Option(False, "--check", help="Dry-run mode"),
     tags: str = typer.Option(None, "--tags", "-t", help="Comma-separated tags"),
     extra_vars: str = typer.Option(None, "--extra-vars", "-e", help="Extra vars (key=val,key=val)"),
+    become_password: str = typer.Option(
+        None, "--become-password", "-K",
+        help="Sudo/become password (default: config become_password)"),
+    verbose: int = typer.Option(0, "--verbose", "-v", count=True,
+                                help="Ansible verbosity — repeat for more (-vv, -vvv)"),
 ):
     """Run a playbook project."""
     database.init_db()
@@ -175,13 +192,27 @@ def run(
     write_inventory_file()
 
     from ansiblecli.runner import run_playbook
-    result = run_playbook(
-        playbook_path,
-        host=resolved_host,
-        check_mode=resolved_check,
-        tags=resolved_tags,
-        extra_vars=resolved_vars,
-    )
+    started_at = datetime.now(timezone.utc).isoformat()
+    try:
+        result = run_playbook(
+            playbook_path,
+            host=resolved_host,
+            check_mode=resolved_check,
+            tags=resolved_tags,
+            extra_vars=resolved_vars,
+            become_password=become_password,
+            verbose=verbose,
+        )
+    except KeyboardInterrupt:
+        database.add_run(
+            project, playbook_path, resolved_host, resolved_check,
+            resolved_tags, resolved_vars, "cancelled", 130,
+            "Interrupted by user (Ctrl-C)",
+            started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+        console.print("\n[yellow]Run cancelled by user.[/yellow]")
+        raise typer.Exit(130) from None
 
     status = "failed"
     exit_code = -1
@@ -294,6 +325,69 @@ def config(
     for k, v in cfg.items():
         table.add_row(k, str(v))
     console.print(table)
+
+
+@app.command()
+def show(run_id: int = typer.Argument(..., help="Run ID, see 'ansiblecli history'")):
+    """Print details and the captured output of a previous run."""
+    database.init_db()
+    from ansiblecli.interactive import show_run_output
+
+    if not show_run_output(run_id, use_pager=False):
+        console.print(f"[red]No run with ID {run_id}.[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def doctor():
+    """Check the environment: binaries, config paths, inventory and database."""
+    database.init_db()
+
+    def row(name, ok, detail):
+        status = "[green]OK[/green]" if ok else "[yellow]WARN[/yellow]"
+        table.add_row(name, status, detail)
+
+    table = Table(title="ansiblecli doctor")
+    table.add_column("Check")
+    table.add_column("Status")
+    table.add_column("Detail")
+
+    for binary, needed_for in (
+        ("ansible-playbook", "running playbooks"),
+        ("sshpass", "machine setup"),
+        ("ssh-keyscan", "machine setup"),
+    ):
+        path = shutil.which(binary)
+        row(binary, bool(path), path or f"missing on PATH (needed for {needed_for})")
+
+    for key in ("playbooks_dir", "playfiles_dir", "inventory_dir"):
+        path = Path(get_config(key))
+        row(key, path.exists(), f"{path}" + ("" if path.exists() else " (missing)"))
+
+    inventory_file = Path(get_config("inventory_dir")) / get_config("inventory_file")
+    row("inventory_file", inventory_file.exists(), str(inventory_file))
+
+    projects = discover_projects()
+    row("playbooks", bool(projects),
+        f"{len(projects)} project{'s' if len(projects) != 1 else ''} discovered")
+
+    try:
+        stats = database.get_history_stats()
+        row("database", True,
+            f"{stats['total']} runs recorded ({stats['success']} ok, {stats['failed']} failed, "
+            f"{stats['cancelled']} cancelled)")
+    except Exception as exc:  # noqa: BLE001 — doctor must report, not crash
+        row("database", False, f"{DB_FILE}: {exc}")
+
+    row("config permissions", not is_config_exposed(),
+        "mode 600 (private)" if not is_config_exposed()
+        else f"{CONFIG_FILE} is readable by other users — run: chmod 600 {CONFIG_FILE}")
+
+    console.print(table)
+
+    if not shutil.which("ansible-playbook"):
+        console.print("\n[yellow]Install Ansible: apt install ansible | brew install ansible "
+                      "| pip install ansible[/yellow]")
 
 
 inventory_app = typer.Typer(

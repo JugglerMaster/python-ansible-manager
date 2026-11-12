@@ -12,12 +12,24 @@ def get_connection():
     conn = sqlite3.connect(str(DB_FILE))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    # Don't fail immediately if another process holds the write lock.
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
-def init_db():
+@contextlib.contextmanager
+def connect():
+    """Connection that is always closed, even on error."""
     conn = get_connection()
-    conn.executescript("""
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def init_db():
+    with connect() as conn:
+        conn.executescript("""
         CREATE TABLE IF NOT EXISTS run_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             project TEXT NOT NULL,
@@ -50,8 +62,7 @@ def init_db():
             last_used TIMESTAMP
         );
     """)
-    conn.commit()
-    conn.close()
+        conn.commit()
     migrate_schema()
 
 
@@ -67,149 +78,144 @@ def add_run(project, playbook_path, host, check_mode, tags, extra_vars, status, 
         started_at = datetime.now(timezone.utc).isoformat()
     if finished_at is None:
         finished_at = started_at
-    conn = get_connection()
-    conn.execute(
-        f"""INSERT INTO run_history ({_RUN_HISTORY_COLUMNS})
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (project, playbook_path, host, int(check_mode), tags or None, extra_vars or None,
-         status, exit_code, output, started_at, finished_at, recap),
-    )
-    conn.commit()
-    conn.close()
+    with connect() as conn:
+        conn.execute(
+            f"""INSERT INTO run_history ({_RUN_HISTORY_COLUMNS})
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (project, playbook_path, host, int(check_mode), tags or None, extra_vars or None,
+             status, exit_code, output, started_at, finished_at, recap),
+        )
+        conn.commit()
 
 
 _LEGACY_ALL_HOSTS = ("All hosts", "all", "*")
 
 
 def migrate_schema():
-    conn = get_connection()
-    conn.execute(
-        "UPDATE run_history SET host = NULL WHERE host IN (?, ?, ?)", _LEGACY_ALL_HOSTS)
-    conn.execute(
-        "UPDATE last_config SET host = NULL WHERE host IN (?, ?, ?)", _LEGACY_ALL_HOSTS)
-    # 'recap' was added after the first release — ignore if already present.
-    with contextlib.suppress(sqlite3.OperationalError):
-        conn.execute("ALTER TABLE run_history ADD COLUMN recap TEXT")
-    conn.commit()
-    conn.close()
+    with connect() as conn:
+        conn.execute(
+            "UPDATE run_history SET host = NULL WHERE host IN ('All hosts', 'all', '*')")
+        conn.execute(
+            "UPDATE last_config SET host = NULL WHERE host IN ('All hosts', 'all', '*')")
+        # 'recap' was added after the first release — ignore if already present.
+        with contextlib.suppress(sqlite3.OperationalError):
+            conn.execute("ALTER TABLE run_history ADD COLUMN recap TEXT")
+        conn.commit()
 
 
 def get_run_history(project=None, limit=50):
-    conn = get_connection()
-    if project:
-        rows = conn.execute(
-            "SELECT * FROM run_history WHERE project = ? ORDER BY started_at DESC LIMIT ?",
-            (project, limit),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM run_history ORDER BY started_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    with connect() as conn:
+        if project:
+            rows = conn.execute(
+                "SELECT * FROM run_history WHERE project = ? ORDER BY started_at DESC LIMIT ?",
+                (project, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM run_history ORDER BY started_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_run_by_id(run_id):
+    """Fetch a single run (used by the output viewer)."""
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM run_history WHERE id = ?", (run_id,)).fetchone()
+        return dict(row) if row else None
 
 
 def get_history_stats(project=None):
-    conn = get_connection()
-    if project:
-        row = conn.execute(
-            "SELECT COUNT(*) as total, "
-            "COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END), 0) as success, "
-            "COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) as failed "
-            "FROM run_history WHERE project = ?",
-            (project,),
-        ).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT COUNT(*) as total, "
-            "COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END), 0) as success, "
-            "COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) as failed FROM run_history",
-        ).fetchone()
-    conn.close()
-    return dict(row) if row else {"total": 0, "success": 0, "failed": 0}
+    summary = (
+        "SELECT COUNT(*) as total, "
+        "COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END), 0) as success, "
+        "COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END), 0) as failed, "
+        "COALESCE(SUM(CASE WHEN status='cancelled' THEN 1 ELSE 0 END), 0) as cancelled "
+        "FROM run_history"
+    )
+    with connect() as conn:
+        if project:
+            row = conn.execute(f"{summary} WHERE project = ?", (project,)).fetchone()
+        else:
+            row = conn.execute(summary).fetchone()
+        stats = dict(row) if row else {}
+        return {key: stats.get(key, 0) for key in ("total", "success", "failed", "cancelled")}
 
 
 def save_last_config(project, host, check_mode, tags, extra_vars):
-    conn = get_connection()
-    conn.execute(
-        """INSERT INTO last_config (project, host, check_mode, tags, extra_vars, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT(project) DO UPDATE SET
-               host = excluded.host,
-               check_mode = excluded.check_mode,
-               tags = excluded.tags,
-               extra_vars = excluded.extra_vars,
-               updated_at = excluded.updated_at""",
-        (project, host, int(check_mode), tags or None, extra_vars or None,
-         datetime.now(timezone.utc).isoformat()),
-    )
-    conn.commit()
-    conn.close()
+    with connect() as conn:
+        conn.execute(
+            """INSERT INTO last_config (project, host, check_mode, tags, extra_vars, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(project) DO UPDATE SET
+                   host = excluded.host,
+                   check_mode = excluded.check_mode,
+                   tags = excluded.tags,
+                   extra_vars = excluded.extra_vars,
+                   updated_at = excluded.updated_at""",
+            (project, host, int(check_mode), tags or None, extra_vars or None,
+             datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
 
 
 def get_last_config(project):
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM last_config WHERE project = ?", (project,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM last_config WHERE project = ?", (project,)).fetchone()
+        return dict(row) if row else None
 
 
 def get_known_hosts():
-    conn = get_connection()
-    rows = conn.execute("SELECT * FROM known_hosts ORDER BY hostname").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM known_hosts ORDER BY hostname").fetchall()
+        return [dict(r) for r in rows]
 
 
 def add_known_host(hostname, address=None, inventory_group="all", os_type=None):
-    conn = get_connection()
-    conn.execute(
-        "INSERT OR REPLACE INTO known_hosts (hostname, address, inventory_group, os_type) VALUES (?, ?, ?, ?)",
-        (hostname, address, inventory_group, os_type),
-    )
-    conn.commit()
-    conn.close()
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO known_hosts "
+            "(hostname, address, inventory_group, os_type) VALUES (?, ?, ?, ?)",
+            (hostname, address, inventory_group, os_type),
+        )
+        conn.commit()
 
 
 def remove_known_host(hostname):
-    conn = get_connection()
-    conn.execute("DELETE FROM known_hosts WHERE hostname = ?", (hostname,))
-    conn.commit()
-    conn.close()
+    with connect() as conn:
+        conn.execute("DELETE FROM known_hosts WHERE hostname = ?", (hostname,))
+        conn.commit()
 
 
 def update_host_last_used(hostname):
-    conn = get_connection()
-    conn.execute(
-        "UPDATE known_hosts SET last_used = ? WHERE hostname = ?",
-        (datetime.now(timezone.utc).isoformat(), hostname),
-    )
-    conn.commit()
-    conn.close()
+    with connect() as conn:
+        conn.execute(
+            "UPDATE known_hosts SET last_used = ? WHERE hostname = ?",
+            (datetime.now(timezone.utc).isoformat(), hostname),
+        )
+        conn.commit()
 
 
 def clear_run_history():
     """Delete every row in run_history."""
-    conn = get_connection()
-    conn.execute("DELETE FROM run_history")
-    conn.commit()
-    conn.close()
+    with connect() as conn:
+        conn.execute("DELETE FROM run_history")
+        conn.commit()
 
 
 def clear_last_config(project=None):
     """Delete saved run settings — one project, or all of them."""
-    conn = get_connection()
-    if project:
-        conn.execute("DELETE FROM last_config WHERE project = ?", (project,))
-    else:
-        conn.execute("DELETE FROM last_config")
-    conn.commit()
-    conn.close()
+    with connect() as conn:
+        if project:
+            conn.execute("DELETE FROM last_config WHERE project = ?", (project,))
+        else:
+            conn.execute("DELETE FROM last_config")
+        conn.commit()
 
 
 def get_inventory_groups():
-    conn = get_connection()
-    rows = conn.execute("SELECT DISTINCT inventory_group FROM known_hosts ORDER BY inventory_group").fetchall()
-    conn.close()
-    return [r["inventory_group"] for r in rows]
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT inventory_group FROM known_hosts ORDER BY inventory_group"
+        ).fetchall()
+        return [r["inventory_group"] for r in rows]

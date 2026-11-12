@@ -33,7 +33,10 @@ ansiblecli
 - **Live streaming output** — ansible-playbook output streams in real time while still being captured for history
 - **Run history** — per-project or global, with host-level recap (ok/failed/unreachable counts from PLAY RECAP)
 - **Playbook viewer** — full-screen YAML via `less` with syntax highlighting, line numbers, scroll, and search
-- **Settings menu** — clear run history, clear saved per-project run settings
+- **Settings menu** — clear run history, clear saved per-project run settings, store the sudo/become password
+- **Become (sudo) support** — set once and playbooks using `become` no longer hang on a sudo prompt; the password travels in a 0600 temp file, never on the command line
+- **Stored run output** — every run's output is captured; open it again from history or with `ansiblecli show <id>`
+- **`ansiblecli doctor`** — checks ansible/sshpass/ssh-keyscan, config paths, inventory, DB and config permissions
 - **Inventory management** — CRUD hosts, group listing, auto-generated YAML inventory
 
 ## Development
@@ -92,11 +95,30 @@ ansiblecli                    # Interactive wizard
 ansiblecli --version          # Print version
 ansiblecli list               # List discovered projects
 ansiblecli run desktop-setup  # Run with last config or prompts
-ansiblecli history            # View run history
+ansiblecli run basics --all-hosts -vv   # Every host, verbose
+ansiblecli run basics -K      # Prompt-free sudo (uses stored become password)
+ansiblecli history            # View run history (IDs shown)
+ansiblecli show 42            # Re-open the captured output of run 42
+ansiblecli doctor             # Environment sanity check
 ansiblecli config             # Show configuration
 ansiblecli inventory list     # List hosts
 ansiblecli inventory add <hostname> --address <ip> --group <group>
+ansiblecli --install-completion      # Shell completion for commands/flags
 ```
+
+### Become (sudo) password
+
+`become` tasks otherwise block on an interactive sudo prompt you can't answer:
+
+```bash
+ansiblecli                    # Settings -> "Set become (sudo) password"
+ansiblecli config set become_password '<sudo password>'   # same thing, non-interactive
+```
+
+It's written to `~/.ansiblecli/config.json`, which is forced to mode `600`, and
+handed to ansible via a temporary `--extra-vars` file — never on the command
+line where `ps` could see it. Runs interrupted with Ctrl-C are recorded as
+`cancelled` instead of disappearing.
 
 Interactive picker hotkeys:
 

@@ -1,5 +1,7 @@
+import json
 import stat
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -136,18 +138,49 @@ def test_setup_sequence_includes_set_hostname_when_given(
     assert "target_hostname=newhost" in hostname_cmd
 
 
-def test_setup_sequence_uses_inline_inventory_and_become_pass(
+def run_setup(calls, seen_secrets=None, returncodes=None):
+    """Drive run_machine_setup, capturing become-password file contents live."""
+    def fake_popen(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        if seen_secrets is not None:
+            for arg in cmd:
+                if arg.startswith("@"):
+                    seen_secrets[arg] = Path(arg[1:]).read_text()
+        return FakeProcess(returncode=(returncodes or {}).get(cmd[0], 0))
+
+    return fake_popen
+
+
+def become_arg(cmd):
+    return next(a for a in cmd if a.startswith("@"))
+
+
+def test_setup_sequence_uses_inline_inventory_and_become_file(
         monkeypatch, full_setup_dir, fake_home):
-    calls = []
-    monkeypatch.setattr(subprocess, "Popen", _run_sequence(calls))
+    calls, secrets = [], {}
+    monkeypatch.setattr(subprocess, "Popen", run_setup(calls, secrets))
 
     run_machine_setup("10.0.0.9", "newhost", "pw", "pw")
 
-    playbook_cmd, playbook_kwargs = next(
-        c for c in calls if "sudo.yml" in c[0][1]
-    )
+    playbook_cmd = next(cmd for cmd, _kwargs in calls if "sudo.yml" in cmd[1])
+    # Not yet in the inventory file -> inline host list
     assert playbook_cmd[playbook_cmd.index("-i") + 1] == "10.0.0.9,"
-    assert playbook_kwargs["env"]["ANSIBLE_BECOME_PASS"] == "pw"
+    # sudo password via a file, never inline (which would show up in `ps`)
+    assert "-e" in playbook_cmd
+    assert json.loads(secrets[become_arg(playbook_cmd)]) == {
+        "ansible_become_password": "pw"}
+
+
+def test_become_password_file_is_removed_after_the_run(
+        monkeypatch, full_setup_dir, fake_home):
+    calls, secrets = [], {}
+    monkeypatch.setattr(subprocess, "Popen", run_setup(calls, secrets))
+
+    run_machine_setup("10.0.0.9", None, "pw", "pw")
+
+    assert secrets, "expected a become-password file during the run"
+    for arg in secrets:
+        assert not Path(arg[1:]).exists()  # temp secret cleaned up
 
 
 def test_setup_sequence_scans_host_key_before_copying_id(
