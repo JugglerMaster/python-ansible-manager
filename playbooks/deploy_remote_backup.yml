@@ -11,7 +11,7 @@
     # --- LOCAL CONFIG (ON THE TARGET SERVER) ---
     backup_log_path: "/var/log/weekly_backup.log"
     backup_script_path: "/usr/local/bin/weekly_backup.sh"
-    temp_local_dir: "/tmp/backup_temp"
+    temp_local_dir: "/storage/backup_temp"
     backup_dirs:
       - /var/www/html
       - /home
@@ -48,6 +48,7 @@
           [Unit]
           Description=Weekly Remote Backup
           After=network.target
+          RequiresMountsFor={{ temp_local_dir }}
           [Service]
           Type=oneshot
           ExecStart={{ backup_script_path }}
