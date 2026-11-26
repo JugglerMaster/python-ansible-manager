@@ -5,7 +5,6 @@ __pycache__/
 .idea/
 .vscode/
 *.pwd
-playfiles/
 inventory/hosts.yml
 
 # build + tooling caches
