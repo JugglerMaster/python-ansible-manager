@@ -56,9 +56,30 @@ def test_inventory_groups_lists_distinct_groups(isolated_env):
 
 
 def test_config_set_and_get(isolated_env):
-    assert runner.invoke(app, ["config", "machine_setup_script", "custom.sh"]).exit_code == 0
-    result = runner.invoke(app, ["config", "machine_setup_script"])
-    assert "custom.sh" in result.output
+    assert runner.invoke(app, ["config", "machine_setup_default_hostname", "custom_host"]).exit_code == 0
+    result = runner.invoke(app, ["config", "machine_setup_default_hostname"])
+    assert "custom_host" in result.output
+
+
+def test_config_redacts_sensitive_keys_in_table(isolated_env):
+    runner.invoke(app, ["config", "become_password", "s3cret"])
+    runner.invoke(app, ["config", "machine_setup_become_pass", "s3cret"])
+    result = runner.invoke(app, ["config"])
+    assert "s3cret" not in result.output
+    assert "become_password" in result.output
+
+
+def test_config_redacts_sensitive_keys_in_single_key_view(isolated_env):
+    runner.invoke(app, ["config", "become_password", "s3cret"])
+    result = runner.invoke(app, ["config", "become_password"])
+    assert "s3cret" not in result.output
+    assert "<set>" in result.output
+
+
+def test_config_set_echo_does_not_leak_sensitive_value(isolated_env):
+    result = runner.invoke(app, ["config", "become_password", "s3cret"])
+    assert "s3cret" not in result.output
+    assert "<set>" in result.output
 
 
 def test_history_with_no_runs(projects):

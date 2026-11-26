@@ -68,7 +68,7 @@ ansiblecli → Main menu (Run / Inventory / Machine Setup / History / Settings /
     History → table with host results recap column
     Settings → run settings prompts (host, check, tags, extra vars)
   Inventory → CRUD hosts + list groups
-  Machine Setup → pick script (or configure) → enter host → live stream → add to inventory
+  Machine Setup → enter host → live stream (built-in sequence) → add to inventory
   History → pick project filter → table with recap + duration
   Settings → Clear run history (with confirmation)
 ```
@@ -88,7 +88,7 @@ ansiblecli → Main menu (Run / Inventory / Machine Setup / History / Settings /
 - **Become (sudo) password**: config key `become_password`; delivered via a 0600 temp
   JSON file + `--extra-vars @file` (`runner.become_password_args`). Never put it in argv
   (`ps`) — env vars alone are ignored by ansible, so `become` tasks would hang.
-  `run_machine_setup()` uses the same helper so both paths stay identical.
+  `run_machine_setup()` uses the same helper so machine setup stays identical to normal runs.
 - **Cancelled runs**: Ctrl-C is caught in `_do_run()` and in `cli.run`, recorded with
   `status="cancelled"`, `exit_code=130` (previously Ctrl-C lost the history entry).
 - **Stored output**: every run's stdout is kept in `run_history.output`; re-open it with
@@ -98,11 +98,11 @@ ansiblecli → Main menu (Run / Inventory / Machine Setup / History / Settings /
   inventory file, project count, DB stats and config file permissions
 - `config.json` may hold passwords — `save_config()`/`lock_down_config_file()` force mode
   0600; `is_config_exposed()` drives the doctor warning
-- `run_subprocess()` in `runner.py` is the shared streaming subprocess utility used by both `run_playbook()` and `run_setup_script()`
+- `run_subprocess()` in `runner.py` is the shared streaming subprocess utility used by `run_playbook()` and `run_machine_setup()`
 - `run_subprocess()` uses `preexec_fn=os.setsid` so `KeyboardInterrupt` propagates to the child process tree
-- `machinesetup.run_setup_script(host)` passes host as `$1` and sets `ANSIBLE_TARGET_HOST` and `ANSIBLE_BECOME_PASS` env vars
-- Script runs from its own parent directory via `cwd=str(script.parent)` so relative paths work
-- `resolve_script_path(override)` handles: explicit override → configured value → auto-discover `playbooks/newMachineSetup.sh`
+- Machine setup runs the built-in `MACHINE_SETUP_SEQUENCE` (ssh-key scan + ssh-copy-id, then
+  sudo.yml / openssh_config.yml / set_hostname.yml / basics.yml / unattendedInstall.yml /
+  reboot.yml) against `<host>` via the same `become_password_args()` helper as normal runs
 - `machine_setup_menu()` in interactive menu: config check → host prompt → password prompt → live execution → add-to-inventory prompt
 - No run_history tracking for machine setup (per user preference)
 - Menus clear + re-render through `render_screen()` each loop; `Esc`/Ctrl-C and
@@ -148,11 +148,10 @@ package directory on tab-completion.
 
 ## Machine Setup Feature
 
-- [x] `ansiblecli machinesetup <host>` — CLI command to run a machine setup script against a new host
+- [x] `ansiblecli machinesetup <host>` — CLI command to run the built-in machine setup sequence against a new host
 - [x] Interactive menu item: Machine Setup (between Inventory and History)
-- [x] Config: `machine_setup_script`, `machine_setup_become_pass`
-- [x] Auto-discovery of `playbooks/newMachineSetup.sh`
-- [x] Subprocess execution with env var injection (host, become pass) via shared `run_subprocess()` utility
+- [x] Config: `machine_setup_become_pass` (single stored SSH/become password, reused by the built-in sequence)
+- [x] Subprocess execution with env var injection (SSH password via `SSHPASS`, become password via `--extra-vars @file`) via shared `run_subprocess()` utility
 - [x] Post-run host import to inventory (known_hosts)
 - [x] KeyboardInterrupt propagates to child process tree via process group
 
@@ -160,10 +159,10 @@ Config keys for Machine Setup:
 
 | Key | Purpose |
 |---|---|
-| `machine_setup_script` | Path to the machine setup shell script |
-| `machine_setup_become_pass` | Default become password exported as `ANSIBLE_BECOME_PASS` to the script |
+| `machine_setup_become_pass` | Default password stored once and reused for SSH login (via `sshpass`) and for ansible become (via `--extra-vars @file`) |
+| `machine_setup_default_hostname` | Default hostname passed to `set_hostname.yml` (overridable with `--hostname`) |
 
-The script runs from its own parent directory so relative paths (e.g. `./sshsetup.sh`) work. The target host is passed as `$1` and exported as `ANSIBLE_TARGET_HOST`.
+The built-in sequence targets the host with an inline inventory (`-i <host>,`) so it works even before the host is added to inventory. The SSH password is never put in argv (only in the `SSHPASS` environment), and ansible's become password is never put in argv (it goes through a 0600 temp JSON file).
 
 ## Potential Future Features
 

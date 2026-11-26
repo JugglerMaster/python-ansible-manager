@@ -96,7 +96,6 @@ ansiblecli --version          # Print version
 ansiblecli list               # List discovered projects
 ansiblecli run desktop-setup  # Run with last config or prompts
 ansiblecli run basics --all-hosts -vv   # Every host, verbose
-ansiblecli run basics -K      # Prompt-free sudo (uses stored become password)
 ansiblecli history            # View run history (IDs shown)
 ansiblecli show 42            # Re-open the captured output of run 42
 ansiblecli doctor             # Environment sanity check
@@ -112,7 +111,7 @@ ansiblecli --install-completion      # Shell completion for commands/flags
 
 ```bash
 ansiblecli                    # Settings -> "Set become (sudo) password"
-ansiblecli config set become_password '<sudo password>'   # same thing, non-interactive
+ansiblecli config become_password '<sudo password>'   # same thing, non-interactive
 ```
 
 It's written to `~/.ansiblecli/config.json`, which is forced to mode `600`, and

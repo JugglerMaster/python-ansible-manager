@@ -33,7 +33,7 @@ from ansiblecli.inventory import (
 from ansiblecli.inventory import (
     remove_host as inv_remove_host,
 )
-from ansiblecli.machinesetup import run_machine_setup, run_setup_script
+from ansiblecli.machinesetup import run_machine_setup
 
 app = typer.Typer(
     name="ansiblecli",
@@ -144,9 +144,6 @@ def run(
     check: bool = typer.Option(False, "--check", help="Dry-run mode"),
     tags: str = typer.Option(None, "--tags", "-t", help="Comma-separated tags"),
     extra_vars: str = typer.Option(None, "--extra-vars", "-e", help="Extra vars (key=val,key=val)"),
-    become_password: str = typer.Option(
-        None, "--become-password", "-K",
-        help="Sudo/become password (default: config become_password)"),
     verbose: int = typer.Option(0, "--verbose", "-v", count=True,
                                 help="Ansible verbosity — repeat for more (-vv, -vvv)"),
 ):
@@ -200,7 +197,6 @@ def run(
             check_mode=resolved_check,
             tags=resolved_tags,
             extra_vars=resolved_vars,
-            become_password=become_password,
             verbose=verbose,
         )
     except KeyboardInterrupt:
@@ -256,7 +252,6 @@ def machinesetup(
     host: str = typer.Argument(..., help="Hostname or IP of the new machine"),
     hostname: str = typer.Option(None, "--hostname", "-n", help="Machine hostname (for set_hostname.yml)"),
     ssh_pass: str = typer.Option(None, "--ssh-pass", "-p", help="SSH password (defaults to the stored one)"),
-    script: str = typer.Option(None, "--script", "-s", help="Run a shell script instead of the built-in sequence"),
     add_to_inventory: bool = typer.Option(True, "--add-to-inventory/--no-add", help="Add host to inventory on success"),
 ):
     """Run machine setup against a new host."""
@@ -273,18 +268,15 @@ def machinesetup(
         console.print("  Hostname:   [dim](not set)[/dim]")
     console.print()
 
-    if script:
-        result = run_setup_script(host, script_path=script, hostname=hostname)
-    else:
-        password = ssh_pass or get_config("machine_setup_become_pass") or None
-        if not password and sys.stdin.isatty():
-            import questionary
-            password = questionary.password("SSH password:").ask()
-        if not password:
-            console.print("[red]Error: an SSH password is required (--ssh-pass, "
-                          "config machine_setup_become_pass, or interactive prompt).[/red]")
-            raise typer.Exit(1)
-        result = run_machine_setup(host, hostname, password, password)
+    password = ssh_pass or get_config("machine_setup_become_pass") or None
+    if not password and sys.stdin.isatty():
+        import questionary
+        password = questionary.password("SSH password:").ask()
+    if not password:
+        console.print("[red]Error: an SSH password is required (--ssh-pass, "
+                      "config machine_setup_become_pass, or interactive prompt).[/red]")
+        raise typer.Exit(1)
+    result = run_machine_setup(host, hostname, password, password)
 
     if result is None:
         console.print("[red]Failed to start machine setup.[/red]")
@@ -301,29 +293,37 @@ def machinesetup(
     raise typer.Exit(0 if result.returncode == 0 else 1)
 
 
+SENSITIVE_CONFIG_KEYS = {"become_password", "machine_setup_become_pass"}
+
+
+def _mask_value(key, value):
+    if key in SENSITIVE_CONFIG_KEYS:
+        return "<set>" if value else "(not set)"
+    return str(value) if value else "(not set)"
+
+
 @app.command()
 def config(
     key: str = typer.Argument(None, help="Config key to show or set"),
     value: str = typer.Argument(None, help="Value to set"),
 ):
-    """View or set configuration."""
+    """View or set configuration. Sensitive keys are never printed."""
     if key and value:
         set_key(key, value)
         write_inventory_file()
-        console.print(f"[green]+[/green] Set {key} = {value}")
+        console.print(f"[green]+[/green] Set {key} = {_mask_value(key, value)}")
         return
 
     cfg = load_config()
     if key:
-        val = cfg.get(key, "[not set]")
-        console.print(f"{key} = {val}")
+        console.print(f"{key} = {_mask_value(key, cfg.get(key))}")
         return
 
     table = Table(title="Configuration")
     table.add_column("Key")
     table.add_column("Value")
     for k, v in cfg.items():
-        table.add_row(k, str(v))
+        table.add_row(k, _mask_value(k, v))
     console.print(table)
 
 

@@ -5,13 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from ansiblecli import config
 from ansiblecli.machinesetup import (
     MACHINE_SETUP_SEQUENCE,
     ensure_executable,
-    resolve_script_path,
     run_machine_setup,
-    run_setup_script,
 )
 
 
@@ -22,18 +19,6 @@ class FakeProcess:
 
     def wait(self):
         return self.returncode
-
-
-@pytest.fixture
-def capture_popen(monkeypatch):
-    calls = []
-
-    def fake_popen(cmd, **kwargs):
-        calls.append((cmd, kwargs))
-        return FakeProcess()
-
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
-    return calls
 
 
 @pytest.fixture
@@ -63,52 +48,6 @@ def full_setup_dir(isolated_env):
         isolated_env.write_playbook(name)
     isolated_env.write_playbook("sshsetup.sh", "#!/bin/sh\n")
     return isolated_env
-
-
-def test_resolve_script_path_defaults_to_new_machine_setup(isolated_env):
-    isolated_env.write_playbook("newMachineSetup.sh", "#!/bin/sh\n")
-    path = resolve_script_path()
-    assert path.name == "newMachineSetup.sh"
-
-
-def test_resolve_script_path_prefers_override(isolated_env):
-    isolated_env.write_playbook("custom.sh", "#!/bin/sh\n")
-    assert resolve_script_path("custom.sh").name == "custom.sh"
-
-
-def test_resolve_script_path_absolute_override(tmp_path):
-    script = tmp_path / "abs.sh"
-    script.write_text("#!/bin/sh\n")
-    assert resolve_script_path(str(script)) == script
-
-
-def test_resolve_script_path_from_config(isolated_env):
-    isolated_env.write_playbook("configured.sh", "#!/bin/sh\n")
-    config.set_key("machine_setup_script", "configured.sh")
-    assert resolve_script_path().name == "configured.sh"
-
-
-def test_resolve_script_path_returns_none_when_missing(isolated_env):
-    assert resolve_script_path() is None
-
-
-def test_run_setup_script_returns_none_without_script(isolated_env):
-    assert run_setup_script("host1") is None
-
-
-def test_run_setup_script_builds_env_and_command(isolated_env, capture_popen):
-    script = isolated_env.write_playbook("newMachineSetup.sh", "#!/bin/sh\n")
-    config.set_key("machine_setup_become_pass", "s3cret")
-
-    run_setup_script("10.0.0.9", hostname="newhost")
-
-    (cmd, kwargs), = capture_popen
-    assert cmd[0] == str(script.resolve())
-    assert cmd[1:] == ["--hostname", "newhost", "10.0.0.9"]
-    assert kwargs["env"]["ANSIBLE_TARGET_HOST"] == "10.0.0.9"
-    assert kwargs["env"]["ANSIBLE_BECOME_PASS"] == "s3cret"
-    assert kwargs["cwd"] == str(script.parent)
-    assert script.stat().st_mode & stat.S_IXUSR  # made executable
 
 
 def test_setup_sequence_skips_set_hostname_without_hostname(

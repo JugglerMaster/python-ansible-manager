@@ -6,63 +6,10 @@ from ansiblecli.config import get as get_config
 from ansiblecli.runner import SubprocessResult, become_password_args, run_subprocess
 
 
-def resolve_script_path(override=None):
-    if override:
-        path = Path(override)
-        if path.is_absolute():
-            return path
-        playbooks_dir = Path(get_config("playbooks_dir"))
-        return playbooks_dir / path
-
-    configured = get_config("machine_setup_script")
-    if configured:
-        path = Path(configured)
-        if path.is_absolute():
-            return path
-        return Path(get_config("playbooks_dir")) / path
-
-    playbooks_dir = Path(get_config("playbooks_dir"))
-    candidate = playbooks_dir / "newMachineSetup.sh"
-    if candidate.exists():
-        return candidate
-
-    return None
-
-
 def ensure_executable(path):
     st = path.stat()
     if not st.st_mode & stat.S_IXUSR:
         path.chmod(st.st_mode | stat.S_IXUSR)
-
-
-def run_setup_script(host, script_path=None, hostname=None):
-    script = resolve_script_path(script_path)
-    if script is None:
-        return None
-
-    script = script.resolve()
-    if not script.exists():
-        return None
-
-    ensure_executable(script)
-
-    become_pass = get_config("machine_setup_become_pass") or None
-
-    env = {
-        "ANSIBLE_TARGET_HOST": host,
-    }
-    if become_pass:
-        env["ANSIBLE_BECOME_PASS"] = become_pass
-
-    cwd = str(script.parent)
-
-    cmd = [str(script)]
-    if hostname:
-        cmd.extend(["--hostname", hostname])
-    cmd.append(host)
-
-    result = run_subprocess(cmd, cwd=cwd, env=env)
-    return result
 
 
 # Machine setup playbook sequence (app-driven, not shell script)
