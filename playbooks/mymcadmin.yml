@@ -36,5 +36,3 @@
   - name: fix permissions for etc folder
     file: dest=/usr/local/etc owner=root group=root mode=0755 recurse=yes
 #not working
-#  - name: set config password to Fuller98
-#    command: /home/pi/McMyAdmin/./configScript.sh

@@ -498,14 +498,14 @@ He can run the role with the following variables to install Nextcloud accordingl
        - "cloud.example.tld"
        - "dbox.intra.net"
      nextcloud_websrv: "nginx"
-     nextcloud_admin_pwd: "secret007"
+     nextcloud_admin_pwd: "CHANGEME"
      nextcloud_webroot: "/var/www/nextcloud/"
      nextcloud_data_dir: "/ncdata"
-     nextcloud_db_pwd: "secretagency"
+     nextcloud_db_pwd: "CHANGEME"
      nextcloud_tls_cert_method: "installed"
      nextcloud_tls_cert: "/etc/nginx/certs/nextcloud.crt"
      nextcloud_tls_cert_key: "/etc/nginx/certs/nextcloud.key"
-     nextcloud_mysql_root_pwd: "42h2g2"
+     nextcloud_mysql_root_pwd: "CHANGEME"
      nextcloud_apps:
        files_external: "" #enable files_external which is already installed in nextcloud
        calendar: "https://github.com/nextcloud/calendar/releases/download/v1.5.0/calendar.tar.gz"
